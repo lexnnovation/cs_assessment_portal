@@ -46,5 +46,7 @@ export async function GET(req, { params }) {
   }
 
   const contentType = CONTENT_TYPES[path.extname(name).toLowerCase()] || 'application/octet-stream';
-  return new NextResponse(data, { headers: { 'Content-Type': contentType, 'Cache-Control': 'private, max-age=3600' } });
+  return new NextResponse(data, {
+    headers: { 'Content-Type': contentType, 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' },
+  });
 }
