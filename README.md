@@ -7,6 +7,8 @@ Next.js (App Router) + SQLite (`better-sqlite3`). All quiz logic — question or
 shuffling, correct answers, and scoring — lives server-side; the client only ever receives the
 current question's text and shuffled option labels, never the answer key.
 
+**Live demo:** https://jvexoldgjdmebgrw8hcklt0l.178.105.174.187.sslip.io
+
 ## Features
 
 **Officer test flow**
