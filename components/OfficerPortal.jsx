@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { scoreLine } from '@/lib/quiz';
 
 async function postJson(url, body) {
   const res = await fetch(url, {
@@ -351,7 +352,9 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
             Test submitted
           </h1>
           <p className="pt-sub">
-            {showScore ? `You answered ${doneInfo.score} of ${doneInfo.totalQuestions} correctly.` : 'Your responses have been recorded.'}
+            {showScore
+              ? `You answered ${scoreLine(doneInfo.score, doneInfo.totalQuestions).text}.`
+              : 'Your responses have been recorded.'}
           </p>
         </div>
       </div>

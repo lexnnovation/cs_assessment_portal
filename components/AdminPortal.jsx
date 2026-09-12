@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { scoreLine } from '@/lib/quiz';
 
 async function getJson(url) {
   const res = await fetch(url);
@@ -53,6 +54,14 @@ const IMPORT_HEADER_MAP = {
   optiond: 'optD',
   answerd: 'optD',
   choiced: 'optD',
+  e: 'optE',
+  optione: 'optE',
+  answere: 'optE',
+  choicee: 'optE',
+  f: 'optF',
+  optionf: 'optF',
+  answerf: 'optF',
+  choicef: 'optF',
   correct: 'correct',
   answer: 'correct',
   correctanswer: 'correct',
@@ -64,13 +73,13 @@ const IMPORT_HEADER_MAP = {
 function resolveCorrectIndex(correctRaw, options) {
   const v = String(correctRaw ?? '').trim();
   if (!v) return -1;
-  if (/^[a-dA-D]$/.test(v)) return v.toUpperCase().charCodeAt(0) - 65;
+  if (/^[a-fA-F]$/.test(v)) return v.toUpperCase().charCodeAt(0) - 65;
   // Prefer matching the literal option text (e.g. a numeric-answer question where
   // "Correct" holds the answer itself, like "4") over treating a bare digit as a
   // 1-based position — text match is the less ambiguous signal when it hits.
   const textMatch = options.findIndex((o) => o.trim().toLowerCase() === v.toLowerCase());
   if (textMatch !== -1) return textMatch;
-  if (/^[1-4]$/.test(v)) return parseInt(v, 10) - 1;
+  if (/^[1-6]$/.test(v)) return parseInt(v, 10) - 1;
   return -1;
 }
 
@@ -83,8 +92,12 @@ function parseImportRows(rawRows) {
       if (target) mapped[target] = raw[key];
     });
     const text = String(mapped.text || '').trim();
-    const options = [mapped.optA, mapped.optB, mapped.optC, mapped.optD].map((o) => String(o ?? '').trim());
-    if (!text && options.every((o) => !o)) return; // skip blank spreadsheet row
+    // Trailing blank columns (e.g. only A-D filled, E/F empty) are dropped so
+    // 2-6 option questions can share one sheet without ragged blank options.
+    const options = [mapped.optA, mapped.optB, mapped.optC, mapped.optD, mapped.optE, mapped.optF]
+      .map((o) => String(o ?? '').trim())
+      .filter(Boolean);
+    if (!text && !options.length) return; // skip blank spreadsheet row
     const correctIndex = resolveCorrectIndex(mapped.correct, options);
     questions.push({ row: i + 2, text, options, correctIndex });
   });
@@ -207,7 +220,7 @@ function OfficersTab({ officers, lastAdded, adminMsg, addingOfficer, nameRef, co
                     </td>
                     <td>{fmtTime(o.openedAt)}</td>
                     <td>{fmtTime(o.submittedAt)}</td>
-                    <td>{o.status === 'submitted' ? `${o.score}/${o.totalQuestions}` : '—'}</td>
+                    <td>{o.status === 'submitted' ? scoreLine(o.score, o.totalQuestions).text : '—'}</td>
                     <td>
                       {flags.length ? <span className="flag-badge">{flags.join(', ')}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}
                     </td>
@@ -229,11 +242,30 @@ function OfficersTab({ officers, lastAdded, adminMsg, addingOfficer, nameRef, co
   );
 }
 
+const SKIP_LABELS = {
+  revisit: 'Skip: can return',
+  no_return: 'Skip: no return',
+  none: 'No skip',
+};
+
 function QuestionsTab({
   questions,
   qTextRef,
-  qOptRefs,
-  qCorrectRef,
+  qKind,
+  setQKind,
+  qOptions,
+  setQOptions,
+  qCorrectIndex,
+  setQCorrectIndex,
+  qSkipPolicy,
+  setQSkipPolicy,
+  qSecondsRef,
+  qMedia,
+  qMediaBusy,
+  qMediaErr,
+  onMediaChange,
+  onRemoveMedia,
+  qErr,
   onAdd,
   onDelete,
   fileInputRef,
@@ -242,6 +274,21 @@ function QuestionsTab({
   importResult,
   onImportFile,
 }) {
+  function updateOption(i, val) {
+    setQOptions(qOptions.map((o, idx) => (idx === i ? val : o)));
+  }
+  function addOption() {
+    if (qOptions.length >= 6) return;
+    setQOptions([...qOptions, '']);
+  }
+  function removeOption(i) {
+    if (qOptions.length <= 2) return;
+    setQOptions(qOptions.filter((_, idx) => idx !== i));
+    if (qCorrectIndex >= qOptions.length - 1) setQCorrectIndex(Math.max(0, qOptions.length - 2));
+    else if (qCorrectIndex === i) setQCorrectIndex(0);
+    else if (qCorrectIndex > i) setQCorrectIndex(qCorrectIndex - 1);
+  }
+
   return (
     <>
       <div className="card">
@@ -249,7 +296,9 @@ function QuestionsTab({
           Bulk import <span className="tag">.xlsx or .csv</span>
         </h2>
         <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
-          Columns: <strong>Question, A, B, C, D, Correct</strong> — Correct can be the letter A–D or the matching option text.
+          Columns: <strong>Question, A, B, C, D, E, F, Correct</strong> (2-6 options; leave unused option columns
+          blank) — Correct can be the letter or the matching option text. Multiple choice only — written-answer and
+          media questions are added one at a time below.
         </p>
         {importMsg && <div className="msg msg-error">{importMsg}</div>}
         {importResult && (
@@ -278,33 +327,95 @@ function QuestionsTab({
       <div className="card">
         <h2>Add question</h2>
         <div className="field">
-          <textarea className="pt-textarea" ref={qTextRef} rows={2} placeholder="Question text" />
-        </div>
-        <div className="row">
-          <div className="field">
-            <input className="pt-input" ref={qOptRefs[0]} placeholder="Option A" />
-          </div>
-          <div className="field">
-            <input className="pt-input" ref={qOptRefs[1]} placeholder="Option B" />
-          </div>
-        </div>
-        <div className="row">
-          <div className="field">
-            <input className="pt-input" ref={qOptRefs[2]} placeholder="Option C" />
-          </div>
-          <div className="field">
-            <input className="pt-input" ref={qOptRefs[3]} placeholder="Option D" />
-          </div>
-        </div>
-        <div className="field">
-          <label className="pt-label">Correct option</label>
-          <select className="pt-select" ref={qCorrectRef} defaultValue="0">
-            <option value="0">A</option>
-            <option value="1">B</option>
-            <option value="2">C</option>
-            <option value="3">D</option>
+          <label className="pt-label">Question type</label>
+          <select className="pt-select" value={qKind} onChange={(e) => setQKind(e.target.value)}>
+            <option value="mcq">Multiple choice</option>
+            <option value="text">Written answer</option>
           </select>
         </div>
+        <div className="field">
+          <textarea className="pt-textarea" ref={qTextRef} rows={2} placeholder="Question text" />
+        </div>
+
+        {qKind === 'mcq' && (
+          <div className="field">
+            <label className="pt-label">Options ({qOptions.length})</label>
+            {qOptions.map((opt, i) => (
+              <div className="opt-row" key={i}>
+                <input
+                  type="radio"
+                  name="qCorrect"
+                  checked={qCorrectIndex === i}
+                  onChange={() => setQCorrectIndex(i)}
+                  title="Correct answer"
+                />
+                <input
+                  className="pt-input"
+                  value={opt}
+                  placeholder={`Option ${String.fromCharCode(65 + i)}`}
+                  onChange={(e) => updateOption(i, e.target.value)}
+                />
+                {qOptions.length > 2 && (
+                  <button className="btn btn-ghost btn-small" onClick={() => removeOption(i)} title="Remove option">
+                    &times;
+                  </button>
+                )}
+              </div>
+            ))}
+            {qOptions.length < 6 && (
+              <button className="btn btn-ghost btn-small" onClick={addOption}>
+                + Add option
+              </button>
+            )}
+            <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px' }}>
+              Select the radio button next to the correct option.
+            </p>
+          </div>
+        )}
+
+        <div className="field">
+          <label className="pt-label">Attach audio or image (optional)</label>
+          {qMedia ? (
+            <div className="row" style={{ alignItems: 'center' }}>
+              <span className="code-chip">
+                {qMedia.kind}: {qMedia.file}
+              </span>
+              <button className="btn btn-ghost btn-small" onClick={onRemoveMedia}>
+                Remove
+              </button>
+            </div>
+          ) : (
+            <input
+              type="file"
+              accept=".mp3,.m4a,.wav,.ogg,.png,.jpg,.jpeg,.webp"
+              onChange={onMediaChange}
+              disabled={qMediaBusy}
+            />
+          )}
+          {qMediaBusy && <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '6px' }}>Uploading&hellip;</p>}
+          {qMediaErr && (
+            <div className="msg msg-error" style={{ marginTop: '8px' }}>
+              {qMediaErr}
+            </div>
+          )}
+        </div>
+
+        <div className="row">
+          <div className="field">
+            <label className="pt-label">Skip behaviour</label>
+            <select className="pt-select" value={qSkipPolicy} onChange={(e) => setQSkipPolicy(e.target.value)}>
+              <option value="revisit">Can skip, can return</option>
+              <option value="no_return">Can skip, no return</option>
+              <option value="none">Cannot skip</option>
+            </select>
+          </div>
+          <div className="field">
+            <label className="pt-label">Time override (seconds, optional)</label>
+            <input className="pt-input" type="number" min={5} ref={qSecondsRef} placeholder="Use default" />
+          </div>
+        </div>
+
+        {qErr && <div className="msg msg-error">{qErr}</div>}
         <button className="btn btn-primary" onClick={onAdd}>
           Add question
         </button>
@@ -317,13 +428,23 @@ function QuestionsTab({
               <div className="qmeta">
                 <div>
                   <strong>Q{i + 1}.</strong> {q.text}
-                  <div className="opts-mini">
-                    {q.options.map((o, oi) => (
-                      <span key={oi}>
-                        {oi > 0 && ' ·  '}
-                        {oi === q.correctIndex ? <span className="correct-mark">✓ {o}</span> : o}
-                      </span>
-                    ))}
+                  {q.kind === 'text' ? (
+                    <div className="opts-mini">Written answer &mdash; graded manually.</div>
+                  ) : (
+                    <div className="opts-mini">
+                      {q.options.map((o, oi) => (
+                        <span key={oi}>
+                          {oi > 0 && ' ·  '}
+                          {oi === q.correctIndex ? <span className="correct-mark">✓ {o}</span> : o}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="qtags">
+                    <span className="qtag">{q.kind === 'text' ? 'Written' : 'Multiple choice'}</span>
+                    <span className="qtag">{SKIP_LABELS[q.skipPolicy] || SKIP_LABELS.revisit}</span>
+                    {q.secondsOverride ? <span className="qtag">{q.secondsOverride}s</span> : null}
+                    {q.mediaFile ? <span className="qtag">{q.mediaKind}</span> : null}
                   </div>
                 </div>
                 <button className="btn btn-ghost btn-small" onClick={() => onDelete(q.id)}>
@@ -403,11 +524,19 @@ export default function AdminPortal() {
   const [importMsg, setImportMsg] = useState('');
   const [importResult, setImportResult] = useState(null);
 
+  const [qKind, setQKind] = useState('mcq');
+  const [qOptions, setQOptions] = useState(['', '']);
+  const [qCorrectIndex, setQCorrectIndex] = useState(0);
+  const [qSkipPolicy, setQSkipPolicy] = useState('revisit');
+  const [qMedia, setQMedia] = useState(null);
+  const [qMediaBusy, setQMediaBusy] = useState(false);
+  const [qMediaErr, setQMediaErr] = useState('');
+  const [qErr, setQErr] = useState('');
+
   const passRef = useRef(null);
   const nameRef = useRef(null);
   const qTextRef = useRef(null);
-  const qOptRefs = [useRef(null), useRef(null), useRef(null), useRef(null)];
-  const qCorrectRef = useRef(null);
+  const qSecondsRef = useRef(null);
   const fileInputRef = useRef(null);
   const setTitleRef = useRef(null);
   const setQuarterRef = useRef(null);
@@ -507,17 +636,75 @@ export default function AdminPortal() {
     window.location.href = '/api/admin/officers/export';
   }
 
+  async function onMediaChange(e) {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = '';
+    if (!file) return;
+    setQMediaErr('');
+    setQMediaBusy(true);
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/admin/upload', { method: 'POST', body: form });
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (e) {
+      /* no body */
+    }
+    setQMediaBusy(false);
+    if (!res.ok) {
+      setQMediaErr(data.error || 'Upload failed.');
+      return;
+    }
+    setQMedia({ file: data.file, kind: data.kind });
+  }
+
+  function removeMedia() {
+    setQMedia(null);
+    setQMediaErr('');
+  }
+
   async function addQuestion() {
+    setQErr('');
     const text = (qTextRef.current?.value || '').trim();
-    const opts = qOptRefs.map((r) => (r.current?.value || '').trim());
-    if (!text || opts.some((o) => !o)) return;
-    const correctIndex = parseInt(qCorrectRef.current?.value || '0', 10);
-    const { ok } = await sendJson('/api/admin/questions', { text, options: opts, correctIndex });
-    if (!ok) return;
+    if (!text) {
+      setQErr('Question text is required.');
+      return;
+    }
+
+    const secondsRaw = (qSecondsRef.current?.value || '').trim();
+    const secondsOverride = secondsRaw ? parseInt(secondsRaw, 10) : null;
+
+    const body = {
+      text,
+      kind: qKind,
+      skipPolicy: qSkipPolicy,
+      secondsOverride,
+      mediaKind: qMedia?.kind || null,
+      mediaFile: qMedia?.file || null,
+    };
+
+    if (qKind === 'mcq') {
+      const opts = qOptions.map((o) => o.trim());
+      if (opts.some((o) => !o)) {
+        setQErr('Fill in every option, or remove the empty one.');
+        return;
+      }
+      body.options = opts;
+      body.correctIndex = qCorrectIndex;
+    }
+
+    const { ok, data } = await sendJson('/api/admin/questions', body);
+    if (!ok) {
+      setQErr(data.error || 'Could not save this question.');
+      return;
+    }
     if (qTextRef.current) qTextRef.current.value = '';
-    qOptRefs.forEach((r) => {
-      if (r.current) r.current.value = '';
-    });
+    if (qSecondsRef.current) qSecondsRef.current.value = '';
+    setQOptions(['', '']);
+    setQCorrectIndex(0);
+    setQSkipPolicy('revisit');
+    setQMedia(null);
     const q = await getJson('/api/admin/questions');
     if (q.ok) setQuestions(q.data.questions);
   }
@@ -664,8 +851,21 @@ export default function AdminPortal() {
         <QuestionsTab
           questions={questions}
           qTextRef={qTextRef}
-          qOptRefs={qOptRefs}
-          qCorrectRef={qCorrectRef}
+          qKind={qKind}
+          setQKind={setQKind}
+          qOptions={qOptions}
+          setQOptions={setQOptions}
+          qCorrectIndex={qCorrectIndex}
+          setQCorrectIndex={setQCorrectIndex}
+          qSkipPolicy={qSkipPolicy}
+          setQSkipPolicy={setQSkipPolicy}
+          qSecondsRef={qSecondsRef}
+          qMedia={qMedia}
+          qMediaBusy={qMediaBusy}
+          qMediaErr={qMediaErr}
+          onMediaChange={onMediaChange}
+          onRemoveMedia={removeMedia}
+          qErr={qErr}
           onAdd={addQuestion}
           onDelete={deleteQuestionById}
           fileInputRef={fileInputRef}

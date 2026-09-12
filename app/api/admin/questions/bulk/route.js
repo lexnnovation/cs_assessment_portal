@@ -63,11 +63,11 @@ export async function POST(req) {
   rows.forEach((row, i) => {
     const rowNum = Number.isInteger(row?.row) ? row.row : i + 1;
     const text = String(row?.text || '').trim();
-    const options = Array.isArray(row?.options) ? row.options.map((o) => String(o || '').trim()) : [];
+    const options = (Array.isArray(row?.options) ? row.options : []).map((o) => String(o || '').trim()).filter(Boolean);
     const correctIndex = Number.isInteger(row?.correctIndex) ? row.correctIndex : -1;
 
-    if (!text || options.length !== 4 || options.some((o) => !o)) {
-      errors.push({ row: rowNum, error: 'Missing question text or one of the four options.' });
+    if (!text || options.length < 2 || options.length > 6) {
+      errors.push({ row: rowNum, error: 'Missing question text or between 2 and 6 non-empty options.' });
       return;
     }
     if (text.length > MAX_TEXT_LEN) {
@@ -78,7 +78,7 @@ export async function POST(req) {
       errors.push({ row: rowNum, error: `An option is too long (max ${MAX_OPTION_LEN} characters).` });
       return;
     }
-    if (correctIndex < 0 || correctIndex > 3) {
+    if (correctIndex < 0 || correctIndex >= options.length) {
       errors.push({ row: rowNum, error: 'Could not determine the correct answer.' });
       return;
     }

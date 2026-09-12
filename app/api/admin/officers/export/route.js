@@ -1,5 +1,6 @@
 import { adminGuard } from '@/lib/auth';
 import { listOfficers } from '@/lib/db';
+import { scoreLine } from '@/lib/quiz';
 
 export const runtime = 'nodejs';
 
@@ -12,7 +13,7 @@ export async function GET() {
   if (unauthorized) return unauthorized;
 
   const officers = listOfficers();
-  const header = 'Code,Name,Status,Opened,Submitted,Score,Total,TabSwitches,Reopens,BlockedReuse\n';
+  const header = 'Code,Name,Status,Opened,Submitted,Score,Total,Percent,TabSwitches,Reopens,BlockedReuse\n';
   const rows = officers
     .map((o) =>
       [
@@ -23,6 +24,7 @@ export async function GET() {
         o.submittedAt || '',
         o.score ?? '',
         o.totalQuestions ?? '',
+        o.status === 'submitted' && o.totalQuestions ? scoreLine(o.score, o.totalQuestions).pct + '%' : '',
         o.tabSwitches || 0,
         (o.reopens || []).length,
         (o.reuseAttempts || []).length,
