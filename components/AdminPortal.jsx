@@ -435,7 +435,11 @@ function QuestionsTab({
   onMediaChange,
   onRemoveMedia,
   qErr,
+  editingId,
+  formRef,
   onAdd,
+  onEdit,
+  onCancelEdit,
   onDelete,
   fileInputRef,
   importBusy,
@@ -493,8 +497,8 @@ function QuestionsTab({
           <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '8px' }}>Importing&hellip;</p>
         )}
       </div>
-      <div className="card">
-        <h2>Add question</h2>
+      <div className="card" ref={formRef}>
+        <h2>{editingId ? 'Edit question' : 'Add question'}</h2>
         <div className="field">
           <label className="pt-label">Question type</label>
           <select className="pt-select" value={qKind} onChange={(e) => setQKind(e.target.value)}>
@@ -588,15 +592,22 @@ function QuestionsTab({
         </div>
 
         {qErr && <div className="msg msg-error">{qErr}</div>}
-        <button className="btn btn-primary" onClick={onAdd}>
-          Add question
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="btn btn-primary" onClick={onAdd}>
+            {editingId ? 'Save changes' : 'Add question'}
+          </button>
+          {editingId && (
+            <button className="btn btn-ghost" onClick={onCancelEdit}>
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
       <div className="card">
         <h2>Question bank ({questions.length})</h2>
         {questions.length ? (
           questions.map((q, i) => (
-            <div className="qlist-item" key={q.id}>
+            <div className="qlist-item" key={q.id} style={q.id === editingId ? { borderColor: 'var(--amber)' } : undefined}>
               <div className="qmeta">
                 <div>
                   <strong>Q{i + 1}.</strong> {q.text}
@@ -619,9 +630,14 @@ function QuestionsTab({
                     {q.mediaFile ? <span className="qtag">{q.mediaKind}</span> : null}
                   </div>
                 </div>
-                <button className="btn btn-ghost btn-small" onClick={() => onDelete(q.id)}>
-                  Remove
-                </button>
+                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                  <button className="btn btn-ghost btn-small" onClick={() => onEdit(q)}>
+                    Edit
+                  </button>
+                  <button className="btn btn-ghost btn-small" onClick={() => onDelete(q.id)}>
+                    Remove
+                  </button>
+                </div>
               </div>
             </div>
           ))
@@ -711,11 +727,13 @@ export default function AdminPortal() {
   const [qMediaBusy, setQMediaBusy] = useState(false);
   const [qMediaErr, setQMediaErr] = useState('');
   const [qErr, setQErr] = useState('');
+  const [editingId, setEditingId] = useState(null);
 
   const passRef = useRef(null);
   const nameRef = useRef(null);
   const qTextRef = useRef(null);
   const qSecondsRef = useRef(null);
+  const qFormRef = useRef(null);
   const fileInputRef = useRef(null);
   const setTitleRef = useRef(null);
   const setQuarterRef = useRef(null);
@@ -849,7 +867,34 @@ export default function AdminPortal() {
     setQMediaErr('');
   }
 
-  async function addQuestion() {
+  function resetQuestionForm() {
+    if (qTextRef.current) qTextRef.current.value = '';
+    if (qSecondsRef.current) qSecondsRef.current.value = '';
+    setQKind('mcq');
+    setQOptions(['', '']);
+    setQCorrectIndex(0);
+    setQSkipPolicy('revisit');
+    setQMedia(null);
+    setQMediaErr('');
+    setQErr('');
+    setEditingId(null);
+  }
+
+  function editQuestion(q) {
+    setEditingId(q.id);
+    setQErr('');
+    setQMediaErr('');
+    setQKind(q.kind);
+    setQOptions(q.kind === 'mcq' && q.options.length ? q.options : ['', '']);
+    setQCorrectIndex(q.kind === 'mcq' ? q.correctIndex : 0);
+    setQSkipPolicy(q.skipPolicy);
+    setQMedia(q.mediaFile ? { file: q.mediaFile, kind: q.mediaKind } : null);
+    if (qTextRef.current) qTextRef.current.value = q.text;
+    if (qSecondsRef.current) qSecondsRef.current.value = q.secondsOverride || '';
+    qFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function addOrUpdateQuestion() {
     setQErr('');
     const text = (qTextRef.current?.value || '').trim();
     if (!text) {
@@ -879,17 +924,13 @@ export default function AdminPortal() {
       body.correctIndex = qCorrectIndex;
     }
 
-    const { ok, data } = await sendJson('/api/admin/questions', body);
+    const url = editingId ? `/api/admin/questions/${editingId}` : '/api/admin/questions';
+    const { ok, data } = await sendJson(url, body, editingId ? 'PUT' : 'POST');
     if (!ok) {
       setQErr(data.error || 'Could not save this question.');
       return;
     }
-    if (qTextRef.current) qTextRef.current.value = '';
-    if (qSecondsRef.current) qSecondsRef.current.value = '';
-    setQOptions(['', '']);
-    setQCorrectIndex(0);
-    setQSkipPolicy('revisit');
-    setQMedia(null);
+    resetQuestionForm();
     const q = await getJson('/api/admin/questions');
     if (q.ok) setQuestions(q.data.questions);
   }
@@ -942,6 +983,7 @@ export default function AdminPortal() {
 
   async function deleteQuestionById(id) {
     await sendJson(`/api/admin/questions/${id}`, {}, 'DELETE');
+    if (editingId === id) resetQuestionForm();
     const q = await getJson('/api/admin/questions');
     if (q.ok) setQuestions(q.data.questions);
   }
@@ -1064,7 +1106,11 @@ export default function AdminPortal() {
           onMediaChange={onMediaChange}
           onRemoveMedia={removeMedia}
           qErr={qErr}
-          onAdd={addQuestion}
+          editingId={editingId}
+          formRef={qFormRef}
+          onAdd={addOrUpdateQuestion}
+          onEdit={editQuestion}
+          onCancelEdit={resetQuestionForm}
           onDelete={deleteQuestionById}
           fileInputRef={fileInputRef}
           importBusy={importBusy}
