@@ -203,7 +203,8 @@ table.pt-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); v
 .answer-badge.pending { background: rgba(232,163,61,0.15); color: var(--amber); }
 .answer-badge.unanswered { background: rgba(139,147,161,0.15); color: var(--muted); }
 
-.score-big { font-family: var(--font-display); font-weight: 700; font-size: 64px; line-height: 1; }
+.score-label { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.score-big { font-family: var(--font-display); font-weight: 700; font-size: 84px; line-height: 1; }
 
 @media (prefers-reduced-motion: reduce) {
   .portal-root * { transition: none !important; animation: none !important; }

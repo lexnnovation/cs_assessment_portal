@@ -220,7 +220,7 @@ function LogTab({ events }) {
       </div>
     );
   }
-  const labels = { opened: 'OPENED', submitted: 'SUBMITTED', reopen: 'REOPENED', reuse_attempt: 'REUSE BLOCKED' };
+  const labels = { opened: 'OPENED', submitted: 'SUBMITTED', reopen: 'REOPENED', reuse_attempt: 'REUSE ATTEMPTED' };
   return (
     <div className="card">
       <h2>Audit trail</h2>
@@ -316,7 +316,7 @@ function OfficersTab({
                 const flags = [];
                 if ((o.tabSwitches || 0) > 0) flags.push(o.tabSwitches + ' tab-switch' + (o.tabSwitches > 1 ? 'es' : ''));
                 if ((o.reopens || []).length > 0) flags.push(o.reopens.length + ' reopen' + (o.reopens.length > 1 ? 's' : ''));
-                if ((o.reuseAttempts || []).length > 0) flags.push(o.reuseAttempts.length + ' blocked reuse');
+                if ((o.reuseAttempts || []).length > 0) flags.push(o.reuseAttempts.length + ' reuse attempt' + (o.reuseAttempts.length > 1 ? 's' : ''));
                 const expanded = expandedCode === o.code;
                 return (
                   <Fragment key={o.code}>

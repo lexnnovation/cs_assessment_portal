@@ -24,7 +24,7 @@ export async function POST(req) {
   }
 
   const questions = buildReview(officer);
-  const pendingCount = questions.filter((q) => q.kind === 'text' && !q.graded).length;
+  const pendingCount = questions.filter((q) => q.kind === 'text' && q.answered && !q.graded).length;
 
   return NextResponse.json({
     name: officer.name,

@@ -449,12 +449,19 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
               <div className="card" style={{ textAlign: 'center' }}>
                 {showScore ? (
                   <>
+                    <div className="score-label">Your score</div>
                     <div className="score-big" style={{ color: 'var(--teal)' }}>
                       {line.pct}%
                     </div>
                     <div style={{ color: 'var(--muted)', fontSize: '14px', marginTop: '8px' }}>
                       {doneInfo.score} of {doneInfo.totalQuestions} correct
                     </div>
+                    {reviewData.pendingCount > 0 && (
+                      <div style={{ color: 'var(--amber)', fontSize: '13px', marginTop: '10px' }}>
+                        {reviewData.pendingCount} written answer{reviewData.pendingCount === 1 ? '' : 's'} still pending
+                        review &mdash; your score may change once graded.
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="pt-sub" style={{ marginBottom: 0 }}>
