@@ -544,6 +544,9 @@ function QuestionsTab({
 
         <div className="field">
           <label className="pt-label">Attach audio or image (optional)</label>
+          <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '-2px 0 8px' }}>
+            Audio: mp3, m4a, wav, ogg (max 25MB). Image: png, jpg, webp (max 5MB).
+          </p>
           {qMedia ? (
             <div className="row" style={{ alignItems: 'center' }}>
               <span className="code-chip">
