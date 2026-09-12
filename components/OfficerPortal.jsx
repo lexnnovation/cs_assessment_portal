@@ -419,6 +419,7 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
 
   if (view === 'done') {
     const showScore = doneInfo && doneInfo.score != null;
+    const line = showScore ? scoreLine(doneInfo.score, doneInfo.totalQuestions) : null;
     return (
       <div className="wrap narrow">
         <div className="code-entry">
@@ -428,11 +429,9 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
           <h1 className="pt-title" style={{ fontSize: '20px' }}>
             Test submitted
           </h1>
-          <p className="pt-sub">
-            {showScore
-              ? `You answered ${scoreLine(doneInfo.score, doneInfo.totalQuestions).text}.`
-              : 'Your responses have been recorded.'}
-          </p>
+          {!reviewData && (
+            <p className="pt-sub">{showScore ? `You answered ${line.text}.` : 'Your responses have been recorded.'}</p>
+          )}
         </div>
 
         {reviewData && (
@@ -445,6 +444,26 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
                 My answers
               </button>
             </div>
+
+            {doneTab === 'score' && (
+              <div className="card" style={{ textAlign: 'center' }}>
+                {showScore ? (
+                  <>
+                    <div className="score-big" style={{ color: 'var(--teal)' }}>
+                      {line.pct}%
+                    </div>
+                    <div style={{ color: 'var(--muted)', fontSize: '14px', marginTop: '8px' }}>
+                      {doneInfo.score} of {doneInfo.totalQuestions} correct
+                    </div>
+                  </>
+                ) : (
+                  <div className="pt-sub" style={{ marginBottom: 0 }}>
+                    Your responses have been recorded.
+                  </div>
+                )}
+              </div>
+            )}
+
             {doneTab === 'review' && (
               <div className="card">
                 {reviewData.pendingCount > 0 && (
@@ -452,49 +471,54 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
                     {reviewData.pendingCount} written answer{reviewData.pendingCount === 1 ? '' : 's'} still pending review.
                   </div>
                 )}
-                {reviewData.questions.map((q, i) => (
-                  <div className="qlist-item" key={i}>
-                    {q.media?.kind === 'audio' && <audio controls src={q.media.url} style={{ width: '100%', marginBottom: '8px' }} />}
-                    {q.media?.kind === 'image' && (
-                      <img src={q.media.url} alt="" style={{ width: '100%', borderRadius: '6px', marginBottom: '8px' }} />
-                    )}
-                    <div style={{ marginBottom: '6px' }}>
-                      <strong>Q{i + 1}.</strong> {q.text}
-                    </div>
-                    {q.kind === 'mcq' ? (
-                      <div className="opts-mini">
-                        {q.options.map((o, oi) => (
-                          <span key={oi}>
-                            {oi > 0 && ' ·  '}
-                            {oi === q.correctIndex ? <span className="correct-mark">✓ {o}</span> : o}
-                            {oi === q.yourIndex && oi !== q.correctIndex ? ' (you picked this)' : ''}
-                          </span>
-                        ))}
-                        {!q.answered && <span style={{ color: 'var(--muted)' }}> — not answered</span>}
+                {reviewData.questions.map((q, i) => {
+                  const badge = !q.answered
+                    ? { cls: 'unanswered', label: 'Not answered' }
+                    : q.kind === 'text' && !q.graded
+                      ? { cls: 'pending', label: 'Pending' }
+                      : q.correct
+                        ? { cls: 'correct', label: 'Correct' }
+                        : { cls: 'wrong', label: 'Incorrect' };
+                  return (
+                    <div className="qlist-item" key={i}>
+                      {q.media?.kind === 'audio' && <audio controls src={q.media.url} style={{ width: '100%', marginBottom: '8px' }} />}
+                      {q.media?.kind === 'image' && (
+                        <img src={q.media.url} alt="" style={{ width: '100%', borderRadius: '6px', marginBottom: '8px' }} />
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '8px' }}>
+                        <div>
+                          <strong>Q{i + 1}.</strong> {q.text}
+                        </div>
+                        <span className={'answer-badge ' + badge.cls}>{badge.label}</span>
                       </div>
-                    ) : (
-                      <div className="opts-mini">
-                        {q.answered ? (
-                          <>
-                            <div style={{ marginBottom: '4px' }}>{q.yourAnswer}</div>
-                            {q.graded ? (
-                              <span
-                                className={q.correct ? 'correct-mark' : ''}
-                                style={!q.correct ? { color: 'var(--red)' } : undefined}
-                              >
-                                {q.correct ? '✓ Marked correct' : '✗ Marked incorrect'}
+                      {q.kind === 'mcq' ? (
+                        <div className="opts-mini" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {q.options.map((o, oi) => {
+                            const isCorrect = oi === q.correctIndex;
+                            const isYours = oi === q.yourIndex;
+                            const color = isCorrect ? 'var(--teal)' : isYours ? 'var(--red)' : 'var(--muted)';
+                            return (
+                              <span key={oi} style={{ color, fontWeight: isCorrect || isYours ? 600 : 400 }}>
+                                {isCorrect ? '✓ ' : isYours ? '✗ ' : ''}
+                                {o}
+                                {isYours ? ' (your answer)' : ''}
                               </span>
-                            ) : (
-                              <span style={{ color: 'var(--amber)' }}>Pending review</span>
-                            )}
-                          </>
-                        ) : (
-                          <span style={{ color: 'var(--muted)' }}>Not answered</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                            );
+                          })}
+                          {!q.answered && <span style={{ color: 'var(--muted)', fontWeight: 400 }}>You didn&rsquo;t answer this one.</span>}
+                        </div>
+                      ) : (
+                        <div className="opts-mini">
+                          {q.answered ? (
+                            <div>{q.yourAnswer}</div>
+                          ) : (
+                            <span style={{ color: 'var(--muted)' }}>You didn&rsquo;t answer this one.</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </>

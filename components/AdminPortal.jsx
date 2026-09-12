@@ -168,6 +168,13 @@ function pendingReviewRows(officers, questions) {
 }
 
 function PaperRow({ row }) {
+  const badge = !row.answered
+    ? { cls: 'unanswered', label: 'Not answered' }
+    : row.kind === 'text' && !row.graded
+      ? { cls: 'pending', label: 'Pending' }
+      : row.correct
+        ? { cls: 'correct', label: 'Correct' }
+        : { cls: 'wrong', label: 'Incorrect' };
   return (
     <div className="qlist-item">
       {row.mediaFile && row.mediaKind === 'audio' && (
@@ -176,35 +183,28 @@ function PaperRow({ row }) {
       {row.mediaFile && row.mediaKind === 'image' && (
         <img src={`/api/media/${row.mediaFile}`} alt="" style={{ width: '100%', borderRadius: '6px', marginBottom: '8px' }} />
       )}
-      <div style={{ marginBottom: '6px' }}>{row.text}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '8px' }}>
+        <div>{row.text}</div>
+        <span className={'answer-badge ' + badge.cls}>{badge.label}</span>
+      </div>
       {row.kind === 'mcq' ? (
-        <div className="opts-mini">
-          {row.options.map((o, oi) => (
-            <span key={oi}>
-              {oi > 0 && ' ·  '}
-              {oi === row.correctIndex ? <span className="correct-mark">✓ {o}</span> : o}
-              {oi === row.yourIndex && oi !== row.correctIndex ? ' (their answer)' : ''}
-            </span>
-          ))}
-          {!row.answered && <span style={{ color: 'var(--muted)' }}> — not answered</span>}
+        <div className="opts-mini" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {row.options.map((o, oi) => {
+            const isCorrect = oi === row.correctIndex;
+            const isTheirs = oi === row.yourIndex;
+            const color = isCorrect ? 'var(--teal)' : isTheirs ? 'var(--red)' : 'var(--muted)';
+            return (
+              <span key={oi} style={{ color, fontWeight: isCorrect || isTheirs ? 600 : 400 }}>
+                {isCorrect ? '✓ ' : isTheirs ? '✗ ' : ''}
+                {o}
+                {isTheirs ? ' (their answer)' : ''}
+              </span>
+            );
+          })}
+          {!row.answered && <span style={{ color: 'var(--muted)', fontWeight: 400 }}>Not answered.</span>}
         </div>
       ) : (
-        <div className="opts-mini">
-          {row.answered ? (
-            <>
-              <div style={{ marginBottom: '4px' }}>{row.yourAnswer}</div>
-              {row.graded ? (
-                <span className={row.correct ? 'correct-mark' : ''} style={!row.correct ? { color: 'var(--red)' } : undefined}>
-                  {row.correct ? '✓ Marked correct' : '✗ Marked incorrect'}
-                </span>
-              ) : (
-                <span style={{ color: 'var(--amber)' }}>Pending review</span>
-              )}
-            </>
-          ) : (
-            <span style={{ color: 'var(--muted)' }}>Not answered</span>
-          )}
-        </div>
+        <div className="opts-mini">{row.answered ? <div>{row.yourAnswer}</div> : <span style={{ color: 'var(--muted)' }}>Not answered.</span>}</div>
       )}
     </div>
   );
@@ -251,6 +251,7 @@ function OfficersTab({
   onAdd,
   onCopy,
   onReset,
+  onDelete,
   onExport,
   onToggleExpand,
 }) {
@@ -344,6 +345,9 @@ function OfficersTab({
                         )}{' '}
                         <button className="btn btn-ghost btn-small" onClick={() => onReset(o.code)}>
                           Reset
+                        </button>{' '}
+                        <button className="btn btn-danger btn-small" onClick={() => onDelete(o.code)}>
+                          Delete
                         </button>
                       </td>
                     </tr>
@@ -830,6 +834,15 @@ export default function AdminPortal() {
     refreshOfficers();
   }
 
+  async function deleteOfficerCode(code) {
+    if (!window.confirm(`Delete ${code} permanently? This removes their name, code, and full history - it can't be undone.`)) {
+      return;
+    }
+    await sendJson(`/api/admin/officers/${encodeURIComponent(code)}`, {}, 'DELETE');
+    if (expandedCode === code) setExpandedCode(null);
+    refreshOfficers();
+  }
+
   async function gradeAnswer(code, questionId, correct) {
     await sendJson('/api/admin/grade', { code, questionId, correct });
     refreshOfficers();
@@ -1082,6 +1095,7 @@ export default function AdminPortal() {
           onAdd={addOfficer}
           onCopy={copyCode}
           onReset={resetOfficerCode}
+          onDelete={deleteOfficerCode}
           onExport={exportCsv}
           onToggleExpand={(code) => setExpandedCode(expandedCode === code ? null : code)}
         />

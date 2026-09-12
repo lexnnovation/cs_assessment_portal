@@ -193,6 +193,18 @@ table.pt-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); v
 
 .empty-state { color: var(--muted); font-size: 13px; padding: 20px; text-align: center; border: 1px dashed var(--border); border-radius: 8px; }
 
+.answer-badge {
+  display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 600;
+  padding: 3px 9px; border-radius: 12px; letter-spacing: 0.03em; text-transform: uppercase;
+}
+.answer-badge.correct { background: rgba(63,191,143,0.15); color: var(--teal); }
+.answer-badge.wrong { background: rgba(229,87,79,0.15); color: var(--red); }
+.answer-badge.pending { background: rgba(232,163,61,0.15); color: var(--amber); }
+.answer-badge.unanswered { background: rgba(139,147,161,0.15); color: var(--muted); }
+
+.score-big { font-family: var(--font-display); font-weight: 700; font-size: 64px; line-height: 1; }
+
 @media (prefers-reduced-motion: reduce) {
   .portal-root * { transition: none !important; animation: none !important; }
 }
