@@ -340,7 +340,7 @@ function OfficersTab({
                       <td style={{ whiteSpace: 'nowrap' }}>
                         {o.status === 'submitted' && (
                           <button className="btn btn-ghost btn-small" onClick={() => onToggleExpand(o.code)}>
-                            {expanded ? 'Hide paper' : 'View paper'}
+                            {expanded ? 'Hide answers' : 'View answers'}
                           </button>
                         )}{' '}
                         <button className="btn btn-ghost btn-small" onClick={() => onReset(o.code)}>
