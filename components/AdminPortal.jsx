@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { scoreLine } from '@/lib/quiz';
 
 async function getJson(url) {
@@ -114,6 +114,102 @@ function fmtTime(iso) {
   );
 }
 
+// Mirrors lib/officerFlow.js's buildReview, but computed client-side from data
+// already loaded (officers + questions) so viewing a paper needs no extra API call.
+function buildOfficerPaper(officer, questions) {
+  const qMap = new Map(questions.map((q) => [q.id, q]));
+  return (officer.order || [])
+    .map((qId) => {
+      const q = qMap.get(qId);
+      if (!q) return null;
+      const yourValue = officer.answers ? officer.answers[qId] : undefined;
+      const answered = yourValue !== undefined;
+      if (q.kind === 'text') {
+        const graded = officer.grades && Object.prototype.hasOwnProperty.call(officer.grades, qId);
+        return {
+          qId,
+          kind: 'text',
+          text: q.text,
+          mediaFile: q.mediaFile,
+          mediaKind: q.mediaKind,
+          answered,
+          yourAnswer: answered ? yourValue : null,
+          graded,
+          correct: graded ? !!officer.grades[qId] : null,
+        };
+      }
+      return {
+        qId,
+        kind: 'mcq',
+        text: q.text,
+        mediaFile: q.mediaFile,
+        mediaKind: q.mediaKind,
+        options: q.options,
+        answered,
+        yourIndex: answered ? yourValue : null,
+        correctIndex: q.correctIndex,
+        correct: answered && yourValue === q.correctIndex,
+      };
+    })
+    .filter(Boolean);
+}
+
+function pendingReviewRows(officers, questions) {
+  const rows = [];
+  officers.forEach((o) => {
+    if (o.status !== 'submitted') return;
+    buildOfficerPaper(o, questions).forEach((row) => {
+      if (row.kind === 'text' && row.answered && !row.graded) {
+        rows.push({ code: o.code, name: o.name, ...row });
+      }
+    });
+  });
+  return rows;
+}
+
+function PaperRow({ row }) {
+  return (
+    <div className="qlist-item">
+      {row.mediaFile && row.mediaKind === 'audio' && (
+        <audio controls src={`/api/media/${row.mediaFile}`} style={{ width: '100%', marginBottom: '8px' }} />
+      )}
+      {row.mediaFile && row.mediaKind === 'image' && (
+        <img src={`/api/media/${row.mediaFile}`} alt="" style={{ width: '100%', borderRadius: '6px', marginBottom: '8px' }} />
+      )}
+      <div style={{ marginBottom: '6px' }}>{row.text}</div>
+      {row.kind === 'mcq' ? (
+        <div className="opts-mini">
+          {row.options.map((o, oi) => (
+            <span key={oi}>
+              {oi > 0 && ' ·  '}
+              {oi === row.correctIndex ? <span className="correct-mark">✓ {o}</span> : o}
+              {oi === row.yourIndex && oi !== row.correctIndex ? ' (their answer)' : ''}
+            </span>
+          ))}
+          {!row.answered && <span style={{ color: 'var(--muted)' }}> — not answered</span>}
+        </div>
+      ) : (
+        <div className="opts-mini">
+          {row.answered ? (
+            <>
+              <div style={{ marginBottom: '4px' }}>{row.yourAnswer}</div>
+              {row.graded ? (
+                <span className={row.correct ? 'correct-mark' : ''} style={!row.correct ? { color: 'var(--red)' } : undefined}>
+                  {row.correct ? '✓ Marked correct' : '✗ Marked incorrect'}
+                </span>
+              ) : (
+                <span style={{ color: 'var(--amber)' }}>Pending review</span>
+              )}
+            </>
+          ) : (
+            <span style={{ color: 'var(--muted)' }}>Not answered</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LogTab({ events }) {
   if (!events.length) {
     return (
@@ -143,7 +239,21 @@ function LogTab({ events }) {
   );
 }
 
-function OfficersTab({ officers, lastAdded, adminMsg, addingOfficer, nameRef, copiedCode, onAdd, onCopy, onReset, onExport }) {
+function OfficersTab({
+  officers,
+  questions,
+  lastAdded,
+  adminMsg,
+  addingOfficer,
+  nameRef,
+  copiedCode,
+  expandedCode,
+  onAdd,
+  onCopy,
+  onReset,
+  onExport,
+  onToggleExpand,
+}) {
   return (
     <>
       <div className="card">
@@ -206,30 +316,47 @@ function OfficersTab({ officers, lastAdded, adminMsg, addingOfficer, nameRef, co
                 if ((o.tabSwitches || 0) > 0) flags.push(o.tabSwitches + ' tab-switch' + (o.tabSwitches > 1 ? 'es' : ''));
                 if ((o.reopens || []).length > 0) flags.push(o.reopens.length + ' reopen' + (o.reopens.length > 1 ? 's' : ''));
                 if ((o.reuseAttempts || []).length > 0) flags.push(o.reuseAttempts.length + ' blocked reuse');
+                const expanded = expandedCode === o.code;
                 return (
-                  <tr key={o.code}>
-                    <td>
-                      <span className="code-chip">{o.code}</span>{' '}
-                      <button className="btn btn-ghost btn-small" style={{ padding: '2px 6px', fontSize: '10px' }} onClick={() => onCopy(o.code)}>
-                        {copiedCode === o.code ? 'Copied!' : 'Copy'}
-                      </button>
-                    </td>
-                    <td>{o.name}</td>
-                    <td>
-                      <span className={'status-pill status-' + o.status}>{o.status.replace('_', ' ')}</span>
-                    </td>
-                    <td>{fmtTime(o.openedAt)}</td>
-                    <td>{fmtTime(o.submittedAt)}</td>
-                    <td>{o.status === 'submitted' ? scoreLine(o.score, o.totalQuestions).text : '—'}</td>
-                    <td>
-                      {flags.length ? <span className="flag-badge">{flags.join(', ')}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}
-                    </td>
-                    <td>
-                      <button className="btn btn-ghost btn-small" onClick={() => onReset(o.code)}>
-                        Reset
-                      </button>
-                    </td>
-                  </tr>
+                  <Fragment key={o.code}>
+                    <tr>
+                      <td>
+                        <span className="code-chip">{o.code}</span>{' '}
+                        <button className="btn btn-ghost btn-small" style={{ padding: '2px 6px', fontSize: '10px' }} onClick={() => onCopy(o.code)}>
+                          {copiedCode === o.code ? 'Copied!' : 'Copy'}
+                        </button>
+                      </td>
+                      <td>{o.name}</td>
+                      <td>
+                        <span className={'status-pill status-' + o.status}>{o.status.replace('_', ' ')}</span>
+                      </td>
+                      <td>{fmtTime(o.openedAt)}</td>
+                      <td>{fmtTime(o.submittedAt)}</td>
+                      <td>{o.status === 'submitted' ? scoreLine(o.score, o.totalQuestions).text : '—'}</td>
+                      <td>
+                        {flags.length ? <span className="flag-badge">{flags.join(', ')}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {o.status === 'submitted' && (
+                          <button className="btn btn-ghost btn-small" onClick={() => onToggleExpand(o.code)}>
+                            {expanded ? 'Hide paper' : 'View paper'}
+                          </button>
+                        )}{' '}
+                        <button className="btn btn-ghost btn-small" onClick={() => onReset(o.code)}>
+                          Reset
+                        </button>
+                      </td>
+                    </tr>
+                    {expanded && (
+                      <tr>
+                        <td colSpan={8} style={{ background: 'var(--panel-2)' }}>
+                          {buildOfficerPaper(o, questions).map((row) => (
+                            <PaperRow key={row.qId} row={row} />
+                          ))}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -239,6 +366,48 @@ function OfficersTab({ officers, lastAdded, adminMsg, addingOfficer, nameRef, co
         )}
       </div>
     </>
+  );
+}
+
+function GradingTab({ rows, onGrade }) {
+  return (
+    <div className="card">
+      <h2>Pending review ({rows.length})</h2>
+      {rows.length ? (
+        rows.map((r) => (
+          <div className="qlist-item" key={r.code + ':' + r.qId}>
+            <div style={{ marginBottom: '8px' }}>
+              <strong>{r.name}</strong> <span className="code-chip">{r.code}</span>
+            </div>
+            <div className="opts-mini" style={{ marginBottom: '8px' }}>
+              {r.text}
+            </div>
+            <div
+              style={{
+                background: 'var(--ink)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                padding: '10px',
+                marginBottom: '10px',
+                fontSize: '13px',
+              }}
+            >
+              {r.yourAnswer}
+            </div>
+            <div className="row">
+              <button className="btn btn-primary btn-small" onClick={() => onGrade(r.code, r.qId, true)}>
+                Correct
+              </button>
+              <button className="btn btn-danger btn-small" onClick={() => onGrade(r.code, r.qId, false)}>
+                Incorrect
+              </button>
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="empty-state">Nothing waiting on review.</div>
+      )}
+    </div>
   );
 }
 
@@ -461,7 +630,7 @@ function QuestionsTab({
   );
 }
 
-function SettingsTab({ settings, setTitleRef, setQuarterRef, setSecondsRef, setShowScoreRef, newPassRef, onSave, onChangePass }) {
+function SettingsTab({ settings, setTitleRef, setQuarterRef, setSecondsRef, setShowScoreRef, setShowReviewRef, newPassRef, onSave, onChangePass }) {
   return (
     <>
       <div className="card">
@@ -483,6 +652,12 @@ function SettingsTab({ settings, setTitleRef, setQuarterRef, setSecondsRef, setS
           <input type="checkbox" id="setShowScore" ref={setShowScoreRef} defaultChecked={settings.showScoreToOfficer} />
           <label htmlFor="setShowScore" style={{ fontSize: '13px' }}>
             Show officers their score after submitting
+          </label>
+        </div>
+        <div className="field" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" id="setShowReview" ref={setShowReviewRef} defaultChecked={settings.showReviewToOfficer} />
+          <label htmlFor="setShowReview" style={{ fontSize: '13px' }}>
+            Let officers review their own answers (right/wrong) after submitting, including by re-entering their code
           </label>
         </div>
         <button className="btn btn-primary" onClick={onSave}>
@@ -520,6 +695,7 @@ export default function AdminPortal() {
   const [adminMsg, setAdminMsg] = useState('');
   const [addingOfficer, setAddingOfficer] = useState(false);
   const [copiedCode, setCopiedCode] = useState('');
+  const [expandedCode, setExpandedCode] = useState(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importMsg, setImportMsg] = useState('');
   const [importResult, setImportResult] = useState(null);
@@ -542,6 +718,7 @@ export default function AdminPortal() {
   const setQuarterRef = useRef(null);
   const setSecondsRef = useRef(null);
   const setShowScoreRef = useRef(null);
+  const setShowReviewRef = useRef(null);
   const newPassRef = useRef(null);
 
   useEffect(() => {
@@ -629,6 +806,11 @@ export default function AdminPortal() {
 
   async function resetOfficerCode(code) {
     await sendJson(`/api/admin/officers/${encodeURIComponent(code)}/reset`, {});
+    refreshOfficers();
+  }
+
+  async function gradeAnswer(code, questionId, correct) {
+    await sendJson('/api/admin/grade', { code, questionId, correct });
     refreshOfficers();
   }
 
@@ -767,6 +949,7 @@ export default function AdminPortal() {
       quarter: setQuarterRef.current?.value.trim(),
       secondsPerQuestion: parseInt(setSecondsRef.current?.value, 10),
       showScoreToOfficer: !!setShowScoreRef.current?.checked,
+      showReviewToOfficer: !!setShowReviewRef.current?.checked,
     };
     const { ok, data } = await sendJson('/api/admin/settings', body, 'PUT');
     if (ok) setSettings(data.settings);
@@ -814,8 +997,15 @@ export default function AdminPortal() {
     );
   }
 
-  const tabs = ['log', 'officers', 'questions', 'settings'];
-  const tabLabels = { log: 'Live log', officers: 'Officers & codes', questions: 'Questions', settings: 'Settings' };
+  const tabs = ['log', 'officers', 'questions', 'grading', 'settings'];
+  const tabLabels = {
+    log: 'Live log',
+    officers: 'Officers & codes',
+    questions: 'Questions',
+    grading: 'Grading',
+    settings: 'Settings',
+  };
+  const pendingRows = pendingReviewRows(officers, questions);
 
   return (
     <div className="wrap">
@@ -828,6 +1018,7 @@ export default function AdminPortal() {
         {tabs.map((t) => (
           <button key={t} className={'tabbtn' + (tab === t ? ' active' : '')} onClick={() => setTab(t)}>
             {tabLabels[t]}
+            {t === 'grading' && pendingRows.length > 0 ? ` (${pendingRows.length})` : ''}
           </button>
         ))}
       </div>
@@ -836,17 +1027,21 @@ export default function AdminPortal() {
       {tab === 'officers' && (
         <OfficersTab
           officers={officers}
+          questions={questions}
           lastAdded={lastAdded}
           adminMsg={adminMsg}
           addingOfficer={addingOfficer}
           nameRef={nameRef}
           copiedCode={copiedCode}
+          expandedCode={expandedCode}
           onAdd={addOfficer}
           onCopy={copyCode}
           onReset={resetOfficerCode}
           onExport={exportCsv}
+          onToggleExpand={(code) => setExpandedCode(expandedCode === code ? null : code)}
         />
       )}
+      {tab === 'grading' && <GradingTab rows={pendingRows} onGrade={gradeAnswer} />}
       {tab === 'questions' && (
         <QuestionsTab
           questions={questions}
@@ -882,6 +1077,7 @@ export default function AdminPortal() {
           setQuarterRef={setQuarterRef}
           setSecondsRef={setSecondsRef}
           setShowScoreRef={setShowScoreRef}
+          setShowReviewRef={setShowReviewRef}
           newPassRef={newPassRef}
           onSave={saveSettings}
           onChangePass={changePasscode}

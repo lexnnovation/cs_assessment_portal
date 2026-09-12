@@ -20,7 +20,8 @@ export async function PUT(req) {
   const quarter = String(body.quarter || '').trim() || current.quarter;
   const secondsPerQuestion = Math.max(10, parseInt(body.secondsPerQuestion, 10) || current.secondsPerQuestion);
   const showScoreToOfficer = !!body.showScoreToOfficer;
+  const showReviewToOfficer = !!body.showReviewToOfficer;
 
-  updateSettings({ title, quarter, secondsPerQuestion, showScoreToOfficer });
+  updateSettings({ title, quarter, secondsPerQuestion, showScoreToOfficer, showReviewToOfficer });
   return NextResponse.json({ settings: getSettings() });
 }

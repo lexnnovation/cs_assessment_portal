@@ -37,11 +37,14 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
   const [title, setTitle] = useState(initialTitle);
   const [quarter, setQuarter] = useState(initialQuarter);
   const [questionCount, setQuestionCount] = useState(0);
-  const [secondsPerQuestion, setSecondsPerQuestion] = useState(45);
   const [question, setQuestion] = useState(null);
+  const [budgetSeconds, setBudgetSeconds] = useState(45);
   const [selected, setSelected] = useState(null);
+  const [answerText, setAnswerText] = useState('');
   const [remaining, setRemaining] = useState(0);
   const [doneInfo, setDoneInfo] = useState(null);
+  const [reviewData, setReviewData] = useState(null);
+  const [doneTab, setDoneTab] = useState('score');
   const [blockedMsg, setBlockedMsg] = useState('');
 
   const codeInputRef = useRef(null);
@@ -95,7 +98,25 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
     };
   }, [view]);
 
-  async function advance(selectedOrigIdx) {
+  function applyQuestionResult(data) {
+    if (data.status === 'review') {
+      setView('review');
+      return;
+    }
+    if (data.status === 'done') {
+      setDoneInfo({ score: data.score, totalQuestions: data.totalQuestions });
+      setView('done');
+      return;
+    }
+    setBudgetSeconds(data.budgetSeconds);
+    setRemaining(data.remainingSeconds);
+    setQuestion(data.question);
+    setSelected(null);
+    setAnswerText('');
+    setView('test');
+  }
+
+  async function advance(action) {
     if (submittingRef.current || !question) return;
     submittingRef.current = true;
     if (timerRef.current) clearInterval(timerRef.current);
@@ -103,7 +124,9 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
     const { ok, data } = await postJson('/api/officer/answer', {
       code: codeRef.current,
       questionIndex: question.index,
-      selectedOrigIdx,
+      action,
+      selectedOrigIdx: question.kind === 'mcq' ? selected : null,
+      answerText: question.kind === 'text' ? answerText : null,
     });
     submittingRef.current = false;
 
@@ -111,26 +134,21 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
       setErrMsg(data.error || 'Something went wrong.');
       return;
     }
-    if (data.status === 'done') {
-      setDoneInfo({ score: data.score, totalQuestions: data.totalQuestions });
-      setView('done');
-    } else {
-      setQuestion(data.question);
-      setSelected(null);
-    }
+    applyQuestionResult(data);
   }
 
   // ---- per-question timer ----
+  // The server is authoritative on expiry; this interval only drives the
+  // on-screen countdown so it ticks smoothly between syncs.
   useEffect(() => {
     if (view !== 'test' || !question) return;
-    setRemaining(secondsPerQuestion);
     submittingRef.current = false;
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       setRemaining((r) => {
         if (r <= 1) {
           clearInterval(timerRef.current);
-          advance(null);
+          advance('answer');
           return 0;
         }
         return r - 1;
@@ -163,17 +181,18 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
       setTitle(data.title);
       setQuarter(data.quarter);
       setQuestionCount(data.questionCount);
-      setSecondsPerQuestion(data.secondsPerQuestion);
       setView('consent');
-    } else if (data.status === 'question') {
+    } else if (data.status === 'submitted') {
+      // Already finished on a prior visit - re-entering shows the read-only
+      // paper instead of a hard block, when the admin has review turned on.
       if (data.name) setOfficerName(data.name);
-      setSecondsPerQuestion(data.secondsPerQuestion);
-      setQuestion(data.question);
-      setSelected(null);
-      setView('test');
-    } else if (data.status === 'done') {
-      setDoneInfo({ score: data.score, totalQuestions: data.totalQuestions });
+      const review = await loadReview();
+      setDoneInfo({ score: review?.score ?? null, totalQuestions: review?.totalQuestions ?? null });
+      setDoneTab('score');
       setView('done');
+    } else {
+      if (data.name) setOfficerName(data.name);
+      applyQuestionResult(data);
     }
   }
 
@@ -183,15 +202,27 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
       setErrMsg(data.error || 'Something went wrong.');
       return;
     }
-    if (data.status === 'done') {
-      setDoneInfo({ score: data.score, totalQuestions: data.totalQuestions });
-      setView('done');
+    applyQuestionResult(data);
+  }
+
+  async function loadReview() {
+    const { ok, data } = await postJson('/api/officer/review', { code: codeRef.current });
+    if (!ok) return null;
+    setReviewData(data);
+    return data;
+  }
+
+  async function submitFinal() {
+    setErrMsg('');
+    const { ok, data } = await postJson('/api/officer/submit', { code: codeRef.current });
+    if (!ok) {
+      setErrMsg(data.error || 'Something went wrong.');
       return;
     }
-    setSecondsPerQuestion(data.secondsPerQuestion);
-    setQuestion(data.question);
-    setSelected(null);
-    setView('test');
+    setDoneInfo({ score: data.score, totalQuestions: data.totalQuestions });
+    setDoneTab('score');
+    setView('done');
+    loadReview(); // best-effort - stays hidden if review is turned off
   }
 
   if (view === 'landing') {
@@ -265,11 +296,12 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
             Hi {officerName.split(' ')[0]}
           </h1>
           <p className="pt-sub">
-            {questionCount} questions, {secondsPerQuestion} seconds each. Questions are shown one at a time and
-            cannot be revisited. Your access has already been recorded as opened.
+            {questionCount} questions, each with its own time limit shown on screen. Questions are shown one at a
+            time; some can be skipped and answered later, before you submit. Your access has already been recorded
+            as opened.
           </p>
           <ul style={{ fontSize: '13px', color: 'var(--muted)', lineHeight: 1.9, margin: '0 0 20px', paddingLeft: '18px' }}>
-            <li>Answer at your own pace within the time given &mdash; the next question loads automatically when time runs out.</li>
+            <li>Answer at your own pace within the time given for each question &mdash; the next question loads automatically when time runs out.</li>
             <li>Copying, right-click, and printing are disabled for the duration of the test.</li>
             <li>Leaving this tab or window during the test is logged.</li>
           </ul>
@@ -282,7 +314,9 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
   }
 
   if (view === 'test' && question) {
-    const pct = Math.max(0, (remaining / secondsPerQuestion) * 100);
+    const pct = Math.max(0, (remaining / budgetSeconds) * 100);
+    const canSkip = question.skipPolicy !== 'none';
+    const canProceed = question.kind === 'text' ? answerText.trim().length > 0 : selected != null;
     return (
       <div className="wrap narrow">
         <div className="q-progress">
@@ -293,24 +327,67 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
         </div>
         <div className="q-shell card">
           <Watermark name={officerName} code={code} />
+          {question.media?.kind === 'audio' && (
+            <audio controls src={question.media.url} style={{ width: '100%', marginBottom: '16px' }} />
+          )}
+          {question.media?.kind === 'image' && (
+            <img src={question.media.url} alt="" style={{ width: '100%', borderRadius: '8px', marginBottom: '16px' }} />
+          )}
           <div className="q-text">{question.text}</div>
-          <div>
-            {question.options.map((opt) => (
-              <button
-                key={opt.origIdx}
-                className={'opt' + (selected === opt.origIdx ? ' selected' : '')}
-                onClick={() => setSelected(opt.origIdx)}
-              >
-                <span className="idx">{opt.letter}</span>
-                {opt.text}
-              </button>
-            ))}
-          </div>
+          {question.kind === 'text' ? (
+            <textarea
+              className="pt-textarea"
+              rows={6}
+              placeholder="Type your answer..."
+              value={answerText}
+              onChange={(e) => setAnswerText(e.target.value)}
+            />
+          ) : (
+            <div>
+              {question.options.map((opt) => (
+                <button
+                  key={opt.origIdx}
+                  className={'opt' + (selected === opt.origIdx ? ' selected' : '')}
+                  onClick={() => setSelected(opt.origIdx)}
+                >
+                  <span className="idx">{opt.letter}</span>
+                  {opt.text}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {errMsg && <div className="msg msg-error">{errMsg}</div>}
-        <button className="btn btn-primary btn-block" disabled={selected == null} onClick={() => advance(selected)}>
-          Next
-        </button>
+        <div className="row">
+          {canSkip && (
+            <button className="btn btn-ghost" onClick={() => advance('skip')}>
+              Skip for now
+            </button>
+          )}
+          <button className="btn btn-primary btn-block" disabled={!canProceed} onClick={() => advance('answer')}>
+            Next
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'review') {
+    return (
+      <div className="wrap narrow">
+        <div className="code-entry">
+          <div className="lockmark" style={{ color: 'var(--amber)', borderColor: 'var(--amber)' }}>
+            &#10003;
+          </div>
+          <h1 className="pt-title" style={{ fontSize: '20px' }}>
+            Ready to submit
+          </h1>
+          <p className="pt-sub">You've reached the end &mdash; every question you can answer has been answered.</p>
+          {errMsg && <div className="msg msg-error">{errMsg}</div>}
+          <button className="btn btn-primary btn-block" onClick={submitFinal}>
+            Submit assessment
+          </button>
+        </div>
       </div>
     );
   }
@@ -357,6 +434,71 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
               : 'Your responses have been recorded.'}
           </p>
         </div>
+
+        {reviewData && (
+          <>
+            <div className="tabbar" style={{ justifyContent: 'center' }}>
+              <button className={'tabbtn' + (doneTab === 'score' ? ' active' : '')} onClick={() => setDoneTab('score')}>
+                Score
+              </button>
+              <button className={'tabbtn' + (doneTab === 'review' ? ' active' : '')} onClick={() => setDoneTab('review')}>
+                My answers
+              </button>
+            </div>
+            {doneTab === 'review' && (
+              <div className="card">
+                {reviewData.pendingCount > 0 && (
+                  <div className="msg msg-warn">
+                    {reviewData.pendingCount} written answer{reviewData.pendingCount === 1 ? '' : 's'} still pending review.
+                  </div>
+                )}
+                {reviewData.questions.map((q, i) => (
+                  <div className="qlist-item" key={i}>
+                    {q.media?.kind === 'audio' && <audio controls src={q.media.url} style={{ width: '100%', marginBottom: '8px' }} />}
+                    {q.media?.kind === 'image' && (
+                      <img src={q.media.url} alt="" style={{ width: '100%', borderRadius: '6px', marginBottom: '8px' }} />
+                    )}
+                    <div style={{ marginBottom: '6px' }}>
+                      <strong>Q{i + 1}.</strong> {q.text}
+                    </div>
+                    {q.kind === 'mcq' ? (
+                      <div className="opts-mini">
+                        {q.options.map((o, oi) => (
+                          <span key={oi}>
+                            {oi > 0 && ' ·  '}
+                            {oi === q.correctIndex ? <span className="correct-mark">✓ {o}</span> : o}
+                            {oi === q.yourIndex && oi !== q.correctIndex ? ' (you picked this)' : ''}
+                          </span>
+                        ))}
+                        {!q.answered && <span style={{ color: 'var(--muted)' }}> — not answered</span>}
+                      </div>
+                    ) : (
+                      <div className="opts-mini">
+                        {q.answered ? (
+                          <>
+                            <div style={{ marginBottom: '4px' }}>{q.yourAnswer}</div>
+                            {q.graded ? (
+                              <span
+                                className={q.correct ? 'correct-mark' : ''}
+                                style={!q.correct ? { color: 'var(--red)' } : undefined}
+                              >
+                                {q.correct ? '✓ Marked correct' : '✗ Marked incorrect'}
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--amber)' }}>Pending review</span>
+                            )}
+                          </>
+                        ) : (
+                          <span style={{ color: 'var(--muted)' }}>Not answered</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
     );
   }

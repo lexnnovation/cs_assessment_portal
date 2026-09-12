@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getOfficer, saveOfficer, getSettings, listQuestions } from '@/lib/db';
 import { seededShuffle } from '@/lib/quiz';
-import { skipDeletedQuestions, isFinished, finishOfficer, questionPayload } from '@/lib/officerFlow';
+import { serveCurrent } from '@/lib/officerFlow';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
@@ -24,6 +24,9 @@ export async function POST(req) {
   if (officer.status === 'submitted') {
     officer.reuseAttempts.push(new Date().toISOString());
     saveOfficer(officer);
+    if (settings.showReviewToOfficer) {
+      return NextResponse.json({ status: 'submitted', name: officer.name });
+    }
     return NextResponse.json({
       status: 'blocked',
       message: `This code was already submitted on ${officer.submittedAt}.`,
@@ -32,22 +35,17 @@ export async function POST(req) {
 
   if (officer.status === 'in_progress') {
     officer.reopens.push(new Date().toISOString());
-    skipDeletedQuestions(officer);
-    if (isFinished(officer)) {
-      finishOfficer(officer);
-      saveOfficer(officer);
-      return NextResponse.json({
-        status: 'done',
-        score: settings.showScoreToOfficer ? officer.score : null,
-        totalQuestions: officer.totalQuestions,
-      });
-    }
+    const result = serveCurrent(officer, settings);
     saveOfficer(officer);
+    if (result.done) {
+      return NextResponse.json({ status: 'review', name: officer.name });
+    }
     return NextResponse.json({
       status: 'question',
       name: officer.name,
-      secondsPerQuestion: settings.secondsPerQuestion,
-      question: questionPayload(officer),
+      remainingSeconds: result.remainingSeconds,
+      budgetSeconds: result.budgetSeconds,
+      question: result.question,
     });
   }
 
@@ -64,6 +62,9 @@ export async function POST(req) {
   officer.openedAt = new Date().toISOString();
   officer.currentIndex = 0;
   officer.answers = {};
+  officer.closed = [];
+  officer.spent = {};
+  officer.questionStartedAt = null;
   officer.order = seededShuffle(questions.map((q) => q.id), officer.code);
   saveOfficer(officer);
 
@@ -73,6 +74,5 @@ export async function POST(req) {
     title: settings.title,
     quarter: settings.quarter,
     questionCount: officer.order.length,
-    secondsPerQuestion: settings.secondsPerQuestion,
   });
 }
