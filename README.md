@@ -1,4 +1,4 @@
-# Officer Test Portal
+# CS Assessment Portal
 
 A single-use-access-code knowledge test portal for customer service officers, plus an admin
 dashboard to manage officers, questions, settings, and a live audit log.
@@ -6,6 +6,46 @@ dashboard to manage officers, questions, settings, and a live audit log.
 Next.js (App Router) + SQLite (`better-sqlite3`). All quiz logic — question order, answer
 shuffling, correct answers, and scoring — lives server-side; the client only ever receives the
 current question's text and shuffled option labels, never the answer key.
+
+## Features
+
+**Officer test flow**
+- Redeem a single-use access code (format `CS-XXXXX`) to start the test — once submitted, or if
+  the code is reused, further attempts are logged and blocked.
+- Questions are served one at a time, each on a configurable countdown (`secondsPerQuestion`).
+- Question order and per-question option order are deterministically shuffled per officer (seeded
+  off their code), so each officer sees a different arrangement that stays stable across page
+  reloads/reopens without needing to persist the shuffled order server-side.
+- Tab/window switches during the test are detected (`visibilitychange`) and recorded, not blocked
+  — visible to admins as a signal, not an interruption to the officer.
+- Scoring and the answer key never reach the client; only shuffled option text and labels do.
+
+**Admin dashboard** (passcode-protected, `iron-session`)
+- **Live log** — real-time feed of officer activity: opened, submitted, reopened, blocked reuse
+  attempts.
+- **Officers & codes** — generate single-use access codes, track per-officer status/score, reset
+  an officer's attempt, export all results as CSV (scores, timestamps, tab-switch and reuse-attempt
+  counts).
+- **Questions** — add/edit/delete questions individually, or bulk-import from `.xlsx`/`.csv`
+  (columns: Question, A, B, C, D, Correct) with per-row validation and a per-row error report for
+  anything that fails to import.
+- **Settings** — test title, quarter/period label, per-question time limit, and whether officers
+  see their score after submitting.
+
+**Security & operational design**
+- Admin session is an encrypted, `httpOnly`, `secure`-in-production `iron-session` cookie with an
+  8-hour expiry; rotating `SESSION_SECRET` logs every admin out.
+- First-run-only passcode setup — there's no default/backdoor admin passcode.
+- Per-IP rate limiting on access-code redemption and admin login.
+- Bulk import enforces a real byte cap on the request stream (not just `Content-Length`), a max
+  row count, and max per-cell text length, to keep imports bounded regardless of what a client
+  claims about the payload.
+
+## Tech stack
+
+Next.js 14 (App Router) · React 18 · SQLite via `better-sqlite3` (WAL mode) · `iron-session` for
+auth · `bcryptjs` for passcode hashing · SheetJS (`xlsx`) for spreadsheet import parsing · Docker
+multi-stage build (`output: standalone`) for deployment.
 
 ## Local development
 
