@@ -653,7 +653,19 @@ function QuestionsTab({
   );
 }
 
-function SettingsTab({ settings, setTitleRef, setQuarterRef, setSecondsRef, setShowScoreRef, setShowReviewRef, newPassRef, onSave, onChangePass }) {
+function SettingsTab({
+  settings,
+  questionBankSize,
+  setTitleRef,
+  setQuarterRef,
+  setSecondsRef,
+  setQuestionsPerRef,
+  setShowScoreRef,
+  setShowReviewRef,
+  newPassRef,
+  onSave,
+  onChangePass,
+}) {
   return (
     <>
       <div className="card">
@@ -670,6 +682,22 @@ function SettingsTab({ settings, setTitleRef, setQuarterRef, setSecondsRef, setS
             <label className="pt-label">Seconds per question</label>
             <input className="pt-input" type="number" min={10} ref={setSecondsRef} defaultValue={settings.secondsPerQuestion} />
           </div>
+        </div>
+        <div className="field">
+          <label className="pt-label">Questions per assessment</label>
+          <input
+            className="pt-input"
+            type="number"
+            min={1}
+            max={questionBankSize || undefined}
+            ref={setQuestionsPerRef}
+            defaultValue={settings.questionsPerAssessment || ''}
+            placeholder={`Blank = all ${questionBankSize} in the bank`}
+          />
+          <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '6px 0 0' }}>
+            Each officer gets a different random selection of this many questions from the bank, in a random order -
+            not the same set every time. Leave blank to give everyone every question.
+          </p>
         </div>
         <div className="field" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input type="checkbox" id="setShowScore" ref={setShowScoreRef} defaultChecked={settings.showScoreToOfficer} />
@@ -742,6 +770,7 @@ export default function AdminPortal() {
   const setTitleRef = useRef(null);
   const setQuarterRef = useRef(null);
   const setSecondsRef = useRef(null);
+  const setQuestionsPerRef = useRef(null);
   const setShowScoreRef = useRef(null);
   const setShowReviewRef = useRef(null);
   const newPassRef = useRef(null);
@@ -1002,10 +1031,12 @@ export default function AdminPortal() {
   }
 
   async function saveSettings() {
+    const questionsPerRaw = (setQuestionsPerRef.current?.value || '').trim();
     const body = {
       title: setTitleRef.current?.value.trim(),
       quarter: setQuarterRef.current?.value.trim(),
       secondsPerQuestion: parseInt(setSecondsRef.current?.value, 10),
+      questionsPerAssessment: questionsPerRaw ? parseInt(questionsPerRaw, 10) : null,
       showScoreToOfficer: !!setShowScoreRef.current?.checked,
       showReviewToOfficer: !!setShowReviewRef.current?.checked,
     };
@@ -1136,9 +1167,11 @@ export default function AdminPortal() {
       {tab === 'settings' && settings && (
         <SettingsTab
           settings={settings}
+          questionBankSize={questions.length}
           setTitleRef={setTitleRef}
           setQuarterRef={setQuarterRef}
           setSecondsRef={setSecondsRef}
+          setQuestionsPerRef={setQuestionsPerRef}
           setShowScoreRef={setShowScoreRef}
           setShowReviewRef={setShowReviewRef}
           newPassRef={newPassRef}

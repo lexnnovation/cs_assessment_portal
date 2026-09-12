@@ -21,7 +21,10 @@ export async function PUT(req) {
   const secondsPerQuestion = Math.max(10, parseInt(body.secondsPerQuestion, 10) || current.secondsPerQuestion);
   const showScoreToOfficer = !!body.showScoreToOfficer;
   const showReviewToOfficer = !!body.showReviewToOfficer;
+  const questionsPerAssessment = Number.isInteger(body.questionsPerAssessment) && body.questionsPerAssessment > 0
+    ? body.questionsPerAssessment
+    : null;
 
-  updateSettings({ title, quarter, secondsPerQuestion, showScoreToOfficer, showReviewToOfficer });
+  updateSettings({ title, quarter, secondsPerQuestion, showScoreToOfficer, showReviewToOfficer, questionsPerAssessment });
   return NextResponse.json({ settings: getSettings() });
 }

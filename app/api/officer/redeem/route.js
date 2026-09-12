@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getOfficer, saveOfficer, getSettings, listQuestions } from '@/lib/db';
-import { seededShuffle } from '@/lib/quiz';
+import { pickQuestionOrder } from '@/lib/quiz';
 import { serveCurrent } from '@/lib/officerFlow';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
@@ -65,7 +65,7 @@ export async function POST(req) {
   officer.closed = [];
   officer.spent = {};
   officer.questionStartedAt = null;
-  officer.order = seededShuffle(questions.map((q) => q.id), officer.code);
+  officer.order = pickQuestionOrder(questions.map((q) => q.id), officer.code, settings.questionsPerAssessment);
   saveOfficer(officer);
 
   return NextResponse.json({
