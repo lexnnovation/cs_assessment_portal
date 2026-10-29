@@ -6,7 +6,7 @@ import AdminPortal from '@/components/AdminPortal';
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata() {
-  return { title: `${getSettings().title} · Admin` };
+  return { title: `Admin | ${getSettings().title}` };
 }
 
 export default function AdminPage() {
