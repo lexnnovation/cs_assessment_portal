@@ -442,11 +442,6 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
           >
             Enter access code
           </button>
-          <div>
-            <a className="pt-footer-link" href="/admin">
-              Admin &rarr;
-            </a>
-          </div>
         </div>
       </div>
     );
