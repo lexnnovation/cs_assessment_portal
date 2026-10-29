@@ -46,6 +46,10 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
   const [reviewData, setReviewData] = useState(null);
   const [doneTab, setDoneTab] = useState('score');
   const [blockedMsg, setBlockedMsg] = useState('');
+  const [draft, setDraft] = useState(null);
+  const [editing, setEditing] = useState(null); // question index being changed on the review screen
+  const [editSelected, setEditSelected] = useState(null);
+  const [editText, setEditText] = useState('');
 
   const codeInputRef = useRef(null);
   const submittingRef = useRef(false);
@@ -58,7 +62,7 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
 
   // ---- test-mode integrity guards ----
   useEffect(() => {
-    if (view !== 'test') return;
+    if (view !== 'test' && view !== 'review') return;
 
     const blockCtx = (e) => e.preventDefault();
     const blockCopy = (e) => e.preventDefault();
@@ -100,6 +104,8 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
 
   function applyQuestionResult(data) {
     if (data.status === 'review') {
+      setEditing(null);
+      loadDraft();
       setView('review');
       return;
     }
@@ -210,6 +216,38 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
     if (!ok) return null;
     setReviewData(data);
     return data;
+  }
+
+  async function loadDraft() {
+    const { ok, data } = await postJson('/api/officer/draft', { code: codeRef.current });
+    if (!ok) {
+      setErrMsg(data.error || 'Something went wrong.');
+      return;
+    }
+    setDraft(data.questions);
+  }
+
+  function startEdit(q) {
+    setErrMsg('');
+    setEditing(q.index);
+    setEditSelected(q.kind === 'mcq' ? q.yourValue : null);
+    setEditText(q.kind === 'text' ? q.yourValue : '');
+  }
+
+  async function saveEdit(q) {
+    setErrMsg('');
+    const { ok, data } = await postJson('/api/officer/change', {
+      code: codeRef.current,
+      questionIndex: q.index,
+      selectedOrigIdx: q.kind === 'mcq' ? editSelected : null,
+      answerText: q.kind === 'text' ? editText : null,
+    });
+    if (!ok) {
+      setErrMsg(data.error || 'Something went wrong.');
+      return;
+    }
+    setEditing(null);
+    await loadDraft();
   }
 
   async function submitFinal() {
@@ -380,14 +418,85 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
             &#10003;
           </div>
           <h1 className="pt-title" style={{ fontSize: '20px' }}>
-            Ready to submit
+            Review your answers
           </h1>
-          <p className="pt-sub">You've reached the end &mdash; every question you can answer has been answered.</p>
-          {errMsg && <div className="msg msg-error">{errMsg}</div>}
-          <button className="btn btn-primary btn-block" onClick={submitFinal}>
-            Submit assessment
-          </button>
+          <p className="pt-sub">
+            Look over what you chose and change anything you like. The timer no longer applies here. Once you submit,
+            your answers are final.
+          </p>
         </div>
+        <div className="q-shell card">
+          <Watermark name={officerName} code={code} />
+          {!draft && <div className="pt-sub">Loading your answers...</div>}
+          {draft?.map((q, i) => {
+            const isEditing = editing === q.index;
+            const canSave = q.kind === 'text' ? editText.trim().length > 0 : editSelected != null;
+            return (
+              <div className="qlist-item" key={q.index}>
+                {q.media?.kind === 'audio' && <audio controls src={q.media.url} style={{ width: '100%', marginBottom: '8px' }} />}
+                {q.media?.kind === 'image' && (
+                  <img src={q.media.url} alt="" style={{ width: '100%', borderRadius: '6px', marginBottom: '8px' }} />
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '8px' }}>
+                  <div>
+                    <strong>Q{i + 1}.</strong> {q.text}
+                  </div>
+                  {q.editable && !isEditing && (
+                    <button className="btn btn-ghost" onClick={() => startEdit(q)}>
+                      Change
+                    </button>
+                  )}
+                </div>
+
+                {isEditing ? (
+                  <>
+                    {q.kind === 'text' ? (
+                      <textarea className="pt-textarea" rows={5} value={editText} onChange={(e) => setEditText(e.target.value)} />
+                    ) : (
+                      q.options.map((opt) => (
+                        <button
+                          key={opt.origIdx}
+                          className={'opt' + (editSelected === opt.origIdx ? ' selected' : '')}
+                          onClick={() => setEditSelected(opt.origIdx)}
+                        >
+                          <span className="idx">{opt.letter}</span>
+                          {opt.text}
+                        </button>
+                      ))
+                    )}
+                    <div className="row">
+                      <button className="btn btn-ghost" onClick={() => setEditing(null)}>
+                        Cancel
+                      </button>
+                      <button className="btn btn-primary btn-block" disabled={!canSave} onClick={() => saveEdit(q)}>
+                        Save answer
+                      </button>
+                    </div>
+                  </>
+                ) : q.answered ? (
+                  <div className="opts-mini">
+                    {q.kind === 'text' ? (
+                      q.yourValue
+                    ) : (
+                      (() => {
+                        const opt = q.options.find((o) => o.origIdx === q.yourValue);
+                        return `${opt.letter}. ${opt.text}`;
+                      })()
+                    )}
+                  </div>
+                ) : (
+                  <div className="opts-mini" style={{ color: 'var(--muted)' }}>
+                    Not answered &mdash; this question can&rsquo;t be reopened.
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {errMsg && <div className="msg msg-error">{errMsg}</div>}
+        <button className="btn btn-primary btn-block" disabled={!draft || editing != null} onClick={submitFinal}>
+          Submit assessment
+        </button>
       </div>
     );
   }
