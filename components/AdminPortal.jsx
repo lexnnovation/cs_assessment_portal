@@ -253,9 +253,20 @@ function OfficersTab({
   onReset,
   onDelete,
   onExport,
+  onResetAll,
   onToggleExpand,
 }) {
   const [prevCode, setPrevCode] = useState(null);
+  const prevOfficer = officers.find((o) => o.code === prevCode && o.previous);
+
+  useEffect(() => {
+    if (!prevOfficer) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setPrevCode(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [prevOfficer]);
   return (
     <>
       <div className="card">
@@ -294,9 +305,14 @@ function OfficersTab({
       <div className="card">
         <h2>
           Officers{' '}
-          <button className="btn btn-ghost btn-small" style={{ float: 'right' }} onClick={onExport}>
-            Export CSV
-          </button>
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+            <button className="btn btn-ghost btn-small" onClick={onExport}>
+              Export CSV
+            </button>
+            <button className="btn btn-danger btn-small" onClick={onResetAll}>
+              Reset all
+            </button>
+          </span>
         </h2>
         {officers.length ? (
           <table className="pt-table">
@@ -346,8 +362,8 @@ function OfficersTab({
                         )}{' '}
                         {o.previous && (
                           <>
-                            <button className="btn btn-ghost btn-small" onClick={() => setPrevCode(prevCode === o.code ? null : o.code)}>
-                              {prevCode === o.code ? 'Hide past results' : 'Past results'}
+                            <button className="btn btn-ghost btn-small" onClick={() => setPrevCode(o.code)}>
+                              Past results
                             </button>{' '}
                           </>
                         )}
@@ -368,19 +384,6 @@ function OfficersTab({
                         </td>
                       </tr>
                     )}
-                    {prevCode === o.code && o.previous && (
-                      <tr>
-                        <td colSpan={8} style={{ background: 'var(--panel-2)' }}>
-                          <div style={{ marginBottom: '10px', fontSize: '13px', color: 'var(--muted)' }}>
-                            <strong>Previous quiz</strong> &middot; {o.previous.title} &middot; {o.previous.quarter} &middot; submitted{' '}
-                            {fmtTime(o.previous.submittedAt)} &middot; {scoreLine(o.previous.score, o.previous.totalQuestions).text}
-                          </div>
-                          {o.previous.questions.map((row, i) => (
-                            <PaperRow key={i} row={row} />
-                          ))}
-                        </td>
-                      </tr>
-                    )}
                   </Fragment>
                 );
               })}
@@ -390,6 +393,30 @@ function OfficersTab({
           <div className="empty-state">No officers added yet.</div>
         )}
       </div>
+      {prevOfficer && (
+        <div className="modal-backdrop" onClick={() => setPrevCode(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <h2 style={{ margin: 0 }}>
+                  {prevOfficer.name} <span className="code-chip">{prevOfficer.code}</span>
+                </h2>
+                <div style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '6px' }}>
+                  Previous quiz &middot; {prevOfficer.previous.title} &middot; {prevOfficer.previous.quarter} &middot; submitted{' '}
+                  {fmtTime(prevOfficer.previous.submittedAt)} &middot;{' '}
+                  {scoreLine(prevOfficer.previous.score, prevOfficer.previous.totalQuestions).text}
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-small" onClick={() => setPrevCode(null)}>
+                Close
+              </button>
+            </div>
+            {prevOfficer.previous.questions.map((row, i) => (
+              <PaperRow key={i} row={row} />
+            ))}
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -877,6 +904,21 @@ export default function AdminPortal() {
     refreshOfficers();
   }
 
+  async function resetAllOfficerCodes() {
+    const submitted = officers.filter((o) => o.status === 'submitted').length;
+    const inProgress = officers.filter((o) => o.status === 'in_progress').length;
+    const lines = [
+      `Reset all ${officers.length} officers for a new test?`,
+      `${submitted} submitted quiz${submitted === 1 ? '' : 'zes'} will be saved as each officer's previous results (replacing any older ones).`,
+    ];
+    if (inProgress) lines.push(`${inProgress} officer${inProgress === 1 ? ' is' : 's are'} mid-test - their progress will be lost.`);
+    lines.push('Export the CSV first if you want a record of scores and flags.');
+    if (!window.confirm(lines.join('\n\n'))) return;
+    await sendJson('/api/admin/officers/reset-all', {});
+    setExpandedCode(null);
+    refreshOfficers();
+  }
+
   async function deleteOfficerCode(code) {
     if (!window.confirm(`Delete ${code} permanently? This removes their name, code, and full history - it can't be undone.`)) {
       return;
@@ -1134,6 +1176,7 @@ export default function AdminPortal() {
           onAdd={addOfficer}
           onCopy={copyCode}
           onReset={resetOfficerCode}
+          onResetAll={resetAllOfficerCodes}
           onDelete={deleteOfficerCode}
           onExport={exportCsv}
           onToggleExpand={(code) => setExpandedCode(expandedCode === code ? null : code)}
