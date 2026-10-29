@@ -33,6 +33,109 @@ function Watermark({ name, code }) {
   );
 }
 
+// Score + "my answers" tabs, shared by the post-submit screen and the
+// previous-results modal.
+function ResultsTabs({ data, score, total, tab, setTab }) {
+  const showScore = score != null;
+  const line = showScore ? scoreLine(score, total) : null;
+  return (
+    <>
+      <div className="tabbar" style={{ justifyContent: 'center' }}>
+        <button className={'tabbtn' + (tab === 'score' ? ' active' : '')} onClick={() => setTab('score')}>
+          Score
+        </button>
+        <button className={'tabbtn' + (tab === 'review' ? ' active' : '')} onClick={() => setTab('review')}>
+          My answers
+        </button>
+      </div>
+
+      {tab === 'score' && (
+        <div className="card" style={{ textAlign: 'center' }}>
+          {showScore ? (
+            <>
+              <div className="score-label">Your score</div>
+              <div className="score-big" style={{ color: 'var(--teal)' }}>
+                {line.pct}%
+              </div>
+              <div style={{ color: 'var(--muted)', fontSize: '14px', marginTop: '8px' }}>
+                {score} of {total} correct
+              </div>
+              {data.pendingCount > 0 && (
+                <div style={{ color: 'var(--amber)', fontSize: '13px', marginTop: '10px' }}>
+                  {data.pendingCount} written answer{data.pendingCount === 1 ? '' : 's'} still pending
+                  review &mdash; your score may change once graded.
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="pt-sub" style={{ marginBottom: 0 }}>
+              Your responses have been recorded.
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'review' && (
+        <div className="card">
+          {data.pendingCount > 0 && (
+            <div className="msg msg-warn">
+              {data.pendingCount} written answer{data.pendingCount === 1 ? '' : 's'} still pending review.
+            </div>
+          )}
+          {data.questions.map((q, i) => {
+            const badge = !q.answered
+              ? { cls: 'unanswered', label: 'Not answered' }
+              : q.kind === 'text' && !q.graded
+                ? { cls: 'pending', label: 'Pending' }
+                : q.correct
+                  ? { cls: 'correct', label: 'Correct' }
+                  : { cls: 'wrong', label: 'Incorrect' };
+            return (
+              <div className="qlist-item" key={i}>
+                {q.media?.kind === 'audio' && <audio controls src={q.media.url} style={{ width: '100%', marginBottom: '8px' }} />}
+                {q.media?.kind === 'image' && (
+                  <img src={q.media.url} alt="" style={{ width: '100%', borderRadius: '6px', marginBottom: '8px' }} />
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '8px' }}>
+                  <div>
+                    <strong>Q{i + 1}.</strong> {q.text}
+                  </div>
+                  <span className={'answer-badge ' + badge.cls}>{badge.label}</span>
+                </div>
+                {q.kind === 'mcq' ? (
+                  <div className="opts-mini" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {q.options.map((o, oi) => {
+                      const isCorrect = oi === q.correctIndex;
+                      const isYours = oi === q.yourIndex;
+                      const color = isCorrect ? 'var(--teal)' : isYours ? 'var(--red)' : 'var(--muted)';
+                      return (
+                        <span key={oi} style={{ color, fontWeight: isCorrect || isYours ? 600 : 400 }}>
+                          {isCorrect ? '✓ ' : isYours ? '✗ ' : ''}
+                          {o}
+                          {isYours ? ' (your answer)' : ''}
+                        </span>
+                      );
+                    })}
+                    {!q.answered && <span style={{ color: 'var(--muted)', fontWeight: 400 }}>You didn&rsquo;t answer this one.</span>}
+                  </div>
+                ) : (
+                  <div className="opts-mini">
+                    {q.answered ? (
+                      <div>{q.yourAnswer}</div>
+                    ) : (
+                      <span style={{ color: 'var(--muted)' }}>You didn&rsquo;t answer this one.</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function OfficerPortal({ initialTitle, initialQuarter }) {
   const [view, setView] = useState('landing');
   const [errMsg, setErrMsg] = useState('');
@@ -51,7 +154,8 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
   const [reviewData, setReviewData] = useState(null);
   const [previousData, setPreviousData] = useState(null);
   const [hasPrevious, setHasPrevious] = useState(false);
-  const [prevBack, setPrevBack] = useState(null); // where the previous-results screen returns to
+  const [prevOpen, setPrevOpen] = useState(false);
+  const [prevTab, setPrevTab] = useState('score');
   const [doneTab, setDoneTab] = useState('score');
   const [blockedMsg, setBlockedMsg] = useState('');
   const [draft, setDraft] = useState(null);
@@ -186,7 +290,8 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
       setView('blocked');
     } else if (data.status === 'previous_only') {
       if (data.name) setOfficerName(data.name);
-      await showPrevious(null);
+      setView('previous_only');
+      await showPrevious();
     } else if (data.status === 'consent') {
       setOfficerName(data.name);
       setTitle(data.title);
@@ -225,16 +330,15 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
     return data;
   }
 
-  async function showPrevious(back) {
+  async function showPrevious() {
     const { ok, data } = await postJson('/api/officer/previous', { code: codeRef.current });
     if (!ok) {
       setErrMsg(data.error || 'Something went wrong.');
       return;
     }
     setPreviousData(data);
-    setPrevBack(back);
-    setDoneTab('score');
-    setView('previous');
+    setPrevTab('score');
+    setPrevOpen(true);
   }
 
   async function loadDraft() {
@@ -283,6 +387,43 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
     setView('done');
     loadReview(); // best-effort - stays hidden if review is turned off
   }
+
+  // Esc closes the previous-results modal
+  useEffect(() => {
+    if (!prevOpen) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setPrevOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [prevOpen]);
+
+  const previousModal =
+    prevOpen && previousData ? (
+      <div className="modal-backdrop" onClick={() => setPrevOpen(false)}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-head">
+            <div>
+              <h2 style={{ margin: 0 }}>Previous test</h2>
+              <div style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '6px' }}>
+                {previousData.title} &middot; {previousData.quarter} &middot;{' '}
+                {new Date(previousData.submittedAt).toLocaleDateString()}
+              </div>
+            </div>
+            <button className="btn btn-ghost btn-small" onClick={() => setPrevOpen(false)}>
+              Close
+            </button>
+          </div>
+          <ResultsTabs
+            data={previousData}
+            score={previousData.score}
+            total={previousData.totalQuestions}
+            tab={prevTab}
+            setTab={setPrevTab}
+          />
+        </div>
+      </div>
+    ) : null;
 
   if (view === 'landing') {
     return (
@@ -366,7 +507,7 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
           </ul>
           {errMsg && <div className="msg msg-error">{errMsg}</div>}
           {hasPrevious && (
-            <button className="btn btn-ghost btn-block" style={{ marginBottom: '10px' }} onClick={() => showPrevious('consent')}>
+            <button className="btn btn-ghost btn-block" style={{ marginBottom: '10px' }} onClick={showPrevious}>
               See my previous results
             </button>
           )}
@@ -374,6 +515,7 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
             Start test
           </button>
         </div>
+        {previousModal}
       </div>
     );
   }
@@ -556,13 +698,26 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
     );
   }
 
-  if (view === 'done' || view === 'previous') {
-    const isPrev = view === 'previous';
-    const shown = isPrev ? previousData : shown;
-    const scoreVal = isPrev ? previousData?.score : doneInfo?.score;
-    const totalVal = isPrev ? previousData?.totalQuestions : doneInfo?.totalQuestions;
-    const showScore = scoreVal != null;
-    const line = showScore ? scoreLine(scoreVal, totalVal) : null;
+  if (view === 'previous_only') {
+    return (
+      <div className="wrap narrow">
+        <div className="code-entry">
+          <h1 className="pt-title" style={{ fontSize: '20px' }}>
+            No new test right now
+          </h1>
+          <p className="pt-sub">There is nothing new to take yet, but you can look back at your last test.</p>
+          <button className="btn btn-primary" onClick={() => showPrevious()}>
+            See my previous results
+          </button>
+        </div>
+        {previousModal}
+      </div>
+    );
+  }
+
+  if (view === 'done') {
+    const showScore = doneInfo && doneInfo.score != null;
+    const line = showScore ? scoreLine(doneInfo.score, doneInfo.totalQuestions) : null;
     return (
       <div className="wrap narrow">
         <div className="code-entry">
@@ -570,126 +725,28 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
             &#10003;
           </div>
           <h1 className="pt-title" style={{ fontSize: '20px' }}>
-            {isPrev ? 'Previous test' : 'Test submitted'}
+            Test submitted
           </h1>
-          {isPrev && (
-            <p className="pt-sub">
-              {previousData.title} &middot; {previousData.quarter} &middot;{' '}
-              {new Date(previousData.submittedAt).toLocaleDateString()}
-            </p>
-          )}
-          {isPrev && prevBack && (
-            <button className="btn btn-primary" onClick={() => setView(prevBack)}>
-              {prevBack === 'consent' ? 'Continue to the new test' : 'Back to my results'}
-            </button>
-          )}
-          {isPrev && !prevBack && <p className="pt-sub">No new test is available right now.</p>}
-          {!isPrev && shown?.previous && (
-            <button className="btn btn-ghost" onClick={() => showPrevious('done')}>
+          {reviewData?.previous && (
+            <button className="btn btn-ghost" onClick={() => showPrevious()}>
               See my previous results
             </button>
           )}
-          {!shown && (
+          {!reviewData && (
             <p className="pt-sub">{showScore ? `You answered ${line.text}.` : 'Your responses have been recorded.'}</p>
           )}
         </div>
 
-        {shown && (
-          <>
-            <div className="tabbar" style={{ justifyContent: 'center' }}>
-              <button className={'tabbtn' + (doneTab === 'score' ? ' active' : '')} onClick={() => setDoneTab('score')}>
-                Score
-              </button>
-              <button className={'tabbtn' + (doneTab === 'review' ? ' active' : '')} onClick={() => setDoneTab('review')}>
-                My answers
-              </button>
-            </div>
-
-            {doneTab === 'score' && (
-              <div className="card" style={{ textAlign: 'center' }}>
-                {showScore ? (
-                  <>
-                    <div className="score-label">Your score</div>
-                    <div className="score-big" style={{ color: 'var(--teal)' }}>
-                      {line.pct}%
-                    </div>
-                    <div style={{ color: 'var(--muted)', fontSize: '14px', marginTop: '8px' }}>
-                      {scoreVal} of {totalVal} correct
-                    </div>
-                    {shown.pendingCount > 0 && (
-                      <div style={{ color: 'var(--amber)', fontSize: '13px', marginTop: '10px' }}>
-                        {shown.pendingCount} written answer{shown.pendingCount === 1 ? '' : 's'} still pending
-                        review &mdash; your score may change once graded.
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="pt-sub" style={{ marginBottom: 0 }}>
-                    Your responses have been recorded.
-                  </div>
-                )}
-              </div>
-            )}
-
-            {doneTab === 'review' && (
-              <div className="card">
-                {shown.pendingCount > 0 && (
-                  <div className="msg msg-warn">
-                    {shown.pendingCount} written answer{shown.pendingCount === 1 ? '' : 's'} still pending review.
-                  </div>
-                )}
-                {shown.questions.map((q, i) => {
-                  const badge = !q.answered
-                    ? { cls: 'unanswered', label: 'Not answered' }
-                    : q.kind === 'text' && !q.graded
-                      ? { cls: 'pending', label: 'Pending' }
-                      : q.correct
-                        ? { cls: 'correct', label: 'Correct' }
-                        : { cls: 'wrong', label: 'Incorrect' };
-                  return (
-                    <div className="qlist-item" key={i}>
-                      {q.media?.kind === 'audio' && <audio controls src={q.media.url} style={{ width: '100%', marginBottom: '8px' }} />}
-                      {q.media?.kind === 'image' && (
-                        <img src={q.media.url} alt="" style={{ width: '100%', borderRadius: '6px', marginBottom: '8px' }} />
-                      )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '8px' }}>
-                        <div>
-                          <strong>Q{i + 1}.</strong> {q.text}
-                        </div>
-                        <span className={'answer-badge ' + badge.cls}>{badge.label}</span>
-                      </div>
-                      {q.kind === 'mcq' ? (
-                        <div className="opts-mini" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          {q.options.map((o, oi) => {
-                            const isCorrect = oi === q.correctIndex;
-                            const isYours = oi === q.yourIndex;
-                            const color = isCorrect ? 'var(--teal)' : isYours ? 'var(--red)' : 'var(--muted)';
-                            return (
-                              <span key={oi} style={{ color, fontWeight: isCorrect || isYours ? 600 : 400 }}>
-                                {isCorrect ? '✓ ' : isYours ? '✗ ' : ''}
-                                {o}
-                                {isYours ? ' (your answer)' : ''}
-                              </span>
-                            );
-                          })}
-                          {!q.answered && <span style={{ color: 'var(--muted)', fontWeight: 400 }}>You didn&rsquo;t answer this one.</span>}
-                        </div>
-                      ) : (
-                        <div className="opts-mini">
-                          {q.answered ? (
-                            <div>{q.yourAnswer}</div>
-                          ) : (
-                            <span style={{ color: 'var(--muted)' }}>You didn&rsquo;t answer this one.</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </>
+        {reviewData && (
+          <ResultsTabs
+            data={reviewData}
+            score={doneInfo?.score}
+            total={doneInfo?.totalQuestions}
+            tab={doneTab}
+            setTab={setDoneTab}
+          />
         )}
+        {previousModal}
       </div>
     );
   }
