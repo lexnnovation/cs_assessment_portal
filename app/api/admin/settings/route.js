@@ -18,13 +18,13 @@ export async function PUT(req) {
   const body = await req.json().catch(() => ({}));
   const title = String(body.title || '').trim() || current.title;
   const quarter = String(body.quarter || '').trim() || current.quarter;
-  const secondsPerQuestion = Math.max(10, parseInt(body.secondsPerQuestion, 10) || current.secondsPerQuestion);
+  const totalMinutes = Math.max(1, parseInt(body.totalMinutes, 10) || current.totalMinutes);
   const showScoreToOfficer = !!body.showScoreToOfficer;
   const showReviewToOfficer = !!body.showReviewToOfficer;
   const questionsPerAssessment = Number.isInteger(body.questionsPerAssessment) && body.questionsPerAssessment > 0
     ? body.questionsPerAssessment
     : null;
 
-  updateSettings({ title, quarter, secondsPerQuestion, showScoreToOfficer, showReviewToOfficer, questionsPerAssessment });
+  updateSettings({ title, quarter, totalMinutes, showScoreToOfficer, showReviewToOfficer, questionsPerAssessment });
   return NextResponse.json({ settings: getSettings() });
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getOfficer, saveOfficer } from '@/lib/db';
-import { changeAnswer, openQuestionIds } from '@/lib/officerFlow';
+import { getOfficer, saveOfficer, getSettings } from '@/lib/db';
+import { changeAnswer, openQuestionIds, expireIfTimeUp, finishedPayload } from '@/lib/officerFlow';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
@@ -21,6 +21,11 @@ export async function POST(req) {
   if (!officer) return NextResponse.json({ error: 'Code not recognized.' }, { status: 404 });
   if (officer.status !== 'in_progress') {
     return NextResponse.json({ error: 'This test is not currently in progress.' }, { status: 409 });
+  }
+  const settings = getSettings();
+  if (expireIfTimeUp(officer, settings)) {
+    saveOfficer(officer);
+    return NextResponse.json(finishedPayload(officer, settings));
   }
   if (openQuestionIds(officer).length > 0) {
     return NextResponse.json({ error: 'Finish the remaining questions first.' }, { status: 409 });

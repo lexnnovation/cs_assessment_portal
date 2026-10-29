@@ -432,7 +432,6 @@ function QuestionsTab({
   setQCorrectIndex,
   qSkipPolicy,
   setQSkipPolicy,
-  qSecondsRef,
   qMedia,
   qMediaBusy,
   qMediaErr,
@@ -589,10 +588,6 @@ function QuestionsTab({
               <option value="none">Cannot skip</option>
             </select>
           </div>
-          <div className="field">
-            <label className="pt-label">Time override (seconds, optional)</label>
-            <input className="pt-input" type="number" min={5} ref={qSecondsRef} placeholder="Use default" />
-          </div>
         </div>
 
         {qErr && <div className="msg msg-error">{qErr}</div>}
@@ -630,7 +625,6 @@ function QuestionsTab({
                   <div className="qtags">
                     <span className="qtag">{q.kind === 'text' ? 'Written' : 'Multiple choice'}</span>
                     <span className="qtag">{SKIP_LABELS[q.skipPolicy] || SKIP_LABELS.revisit}</span>
-                    {q.secondsOverride ? <span className="qtag">{q.secondsOverride}s</span> : null}
                     {q.mediaFile ? <span className="qtag">{q.mediaKind}</span> : null}
                   </div>
                 </div>
@@ -658,7 +652,7 @@ function SettingsTab({
   questionBankSize,
   setTitleRef,
   setQuarterRef,
-  setSecondsRef,
+  setMinutesRef,
   setQuestionsPerRef,
   setShowScoreRef,
   setShowReviewRef,
@@ -679,8 +673,8 @@ function SettingsTab({
             <input className="pt-input" ref={setQuarterRef} defaultValue={settings.quarter} />
           </div>
           <div className="field">
-            <label className="pt-label">Seconds per question</label>
-            <input className="pt-input" type="number" min={10} ref={setSecondsRef} defaultValue={settings.secondsPerQuestion} />
+            <label className="pt-label">Time for the whole test (minutes)</label>
+            <input className="pt-input" type="number" min={1} ref={setMinutesRef} defaultValue={settings.totalMinutes} />
           </div>
         </div>
         <div className="field">
@@ -764,12 +758,11 @@ export default function AdminPortal() {
   const passRef = useRef(null);
   const nameRef = useRef(null);
   const qTextRef = useRef(null);
-  const qSecondsRef = useRef(null);
   const qFormRef = useRef(null);
   const fileInputRef = useRef(null);
   const setTitleRef = useRef(null);
   const setQuarterRef = useRef(null);
-  const setSecondsRef = useRef(null);
+  const setMinutesRef = useRef(null);
   const setQuestionsPerRef = useRef(null);
   const setShowScoreRef = useRef(null);
   const setShowReviewRef = useRef(null);
@@ -911,7 +904,6 @@ export default function AdminPortal() {
 
   function resetQuestionForm() {
     if (qTextRef.current) qTextRef.current.value = '';
-    if (qSecondsRef.current) qSecondsRef.current.value = '';
     setQKind('mcq');
     setQOptions(['', '']);
     setQCorrectIndex(0);
@@ -932,7 +924,6 @@ export default function AdminPortal() {
     setQSkipPolicy(q.skipPolicy);
     setQMedia(q.mediaFile ? { file: q.mediaFile, kind: q.mediaKind } : null);
     if (qTextRef.current) qTextRef.current.value = q.text;
-    if (qSecondsRef.current) qSecondsRef.current.value = q.secondsOverride || '';
     qFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -944,14 +935,10 @@ export default function AdminPortal() {
       return;
     }
 
-    const secondsRaw = (qSecondsRef.current?.value || '').trim();
-    const secondsOverride = secondsRaw ? parseInt(secondsRaw, 10) : null;
-
     const body = {
       text,
       kind: qKind,
       skipPolicy: qSkipPolicy,
-      secondsOverride,
       mediaKind: qMedia?.kind || null,
       mediaFile: qMedia?.file || null,
     };
@@ -1035,7 +1022,7 @@ export default function AdminPortal() {
     const body = {
       title: setTitleRef.current?.value.trim(),
       quarter: setQuarterRef.current?.value.trim(),
-      secondsPerQuestion: parseInt(setSecondsRef.current?.value, 10),
+      totalMinutes: parseInt(setMinutesRef.current?.value, 10),
       questionsPerAssessment: questionsPerRaw ? parseInt(questionsPerRaw, 10) : null,
       showScoreToOfficer: !!setShowScoreRef.current?.checked,
       showReviewToOfficer: !!setShowReviewRef.current?.checked,
@@ -1144,7 +1131,6 @@ export default function AdminPortal() {
           setQCorrectIndex={setQCorrectIndex}
           qSkipPolicy={qSkipPolicy}
           setQSkipPolicy={setQSkipPolicy}
-          qSecondsRef={qSecondsRef}
           qMedia={qMedia}
           qMediaBusy={qMediaBusy}
           qMediaErr={qMediaErr}
@@ -1170,7 +1156,7 @@ export default function AdminPortal() {
           questionBankSize={questions.length}
           setTitleRef={setTitleRef}
           setQuarterRef={setQuarterRef}
-          setSecondsRef={setSecondsRef}
+          setMinutesRef={setMinutesRef}
           setQuestionsPerRef={setQuestionsPerRef}
           setShowScoreRef={setShowScoreRef}
           setShowReviewRef={setShowReviewRef}

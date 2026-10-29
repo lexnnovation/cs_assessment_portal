@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getOfficer, saveOfficer, getSettings } from '@/lib/db';
-import { submitAnswer } from '@/lib/officerFlow';
+import { submitAnswer, expireIfTimeUp, finishedPayload } from '@/lib/officerFlow';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
@@ -25,6 +25,10 @@ export async function POST(req) {
   }
 
   const settings = getSettings();
+  if (expireIfTimeUp(officer, settings)) {
+    saveOfficer(officer);
+    return NextResponse.json(finishedPayload(officer, settings));
+  }
   const result = submitAnswer(officer, settings, { questionIndex, action, selectedOrigIdx, answerText });
   saveOfficer(officer);
 
@@ -32,12 +36,12 @@ export async function POST(req) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
   if (result.done) {
-    return NextResponse.json({ status: 'review' });
+    return NextResponse.json({ status: 'review', remainingSeconds: result.remainingSeconds, totalSeconds: result.totalSeconds });
   }
   return NextResponse.json({
     status: 'question',
     remainingSeconds: result.remainingSeconds,
-    budgetSeconds: result.budgetSeconds,
+    totalSeconds: result.totalSeconds,
     question: result.question,
   });
 }

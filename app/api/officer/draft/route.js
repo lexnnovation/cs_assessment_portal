@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getOfficer } from '@/lib/db';
-import { buildDraft, openQuestionIds } from '@/lib/officerFlow';
+import { getOfficer, saveOfficer, getSettings } from '@/lib/db';
+import { buildDraft, serveCurrent, openQuestionIds, expireIfTimeUp, finishedPayload } from '@/lib/officerFlow';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
@@ -19,9 +19,16 @@ export async function POST(req) {
   if (officer.status !== 'in_progress') {
     return NextResponse.json({ error: 'This test is not currently in progress.' }, { status: 409 });
   }
+  const settings = getSettings();
+  if (expireIfTimeUp(officer, settings)) {
+    saveOfficer(officer);
+    return NextResponse.json(finishedPayload(officer, settings));
+  }
   if (openQuestionIds(officer).length > 0) {
     return NextResponse.json({ error: 'Finish the remaining questions first.' }, { status: 409 });
   }
 
-  return NextResponse.json({ questions: buildDraft(officer) });
+  const { remainingSeconds, totalSeconds } = serveCurrent(officer, settings);
+  saveOfficer(officer);
+  return NextResponse.json({ questions: buildDraft(officer), remainingSeconds, totalSeconds });
 }

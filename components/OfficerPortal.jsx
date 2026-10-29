@@ -18,6 +18,10 @@ async function postJson(url, body) {
   return { ok: res.ok, status: res.status, data };
 }
 
+function formatClock(sec) {
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+}
+
 function Watermark({ name, code }) {
   const label = `${name} · ${code} · ${new Date().toLocaleString()}`;
   return (
@@ -38,7 +42,8 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
   const [quarter, setQuarter] = useState(initialQuarter);
   const [questionCount, setQuestionCount] = useState(0);
   const [question, setQuestion] = useState(null);
-  const [budgetSeconds, setBudgetSeconds] = useState(45);
+  const [totalSeconds, setTotalSeconds] = useState(1800);
+  const [totalMinutes, setTotalMinutes] = useState(null);
   const [selected, setSelected] = useState(null);
   const [answerText, setAnswerText] = useState('');
   const [remaining, setRemaining] = useState(0);
@@ -53,7 +58,6 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
 
   const codeInputRef = useRef(null);
   const submittingRef = useRef(false);
-  const timerRef = useRef(null);
   const codeRef = useRef('');
 
   useEffect(() => {
@@ -103,6 +107,10 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
   }, [view]);
 
   function applyQuestionResult(data) {
+    if (data.remainingSeconds != null) {
+      setRemaining(Math.ceil(data.remainingSeconds));
+      setTotalSeconds(data.totalSeconds);
+    }
     if (data.status === 'review') {
       setEditing(null);
       loadDraft();
@@ -111,11 +119,11 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
     }
     if (data.status === 'done') {
       setDoneInfo({ score: data.score, totalQuestions: data.totalQuestions });
+      setDoneTab('score');
       setView('done');
+      loadReview(); // best-effort - stays hidden if review is turned off
       return;
     }
-    setBudgetSeconds(data.budgetSeconds);
-    setRemaining(data.remainingSeconds);
     setQuestion(data.question);
     setSelected(null);
     setAnswerText('');
@@ -125,7 +133,6 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
   async function advance(action) {
     if (submittingRef.current || !question) return;
     submittingRef.current = true;
-    if (timerRef.current) clearInterval(timerRef.current);
 
     const { ok, data } = await postJson('/api/officer/answer', {
       code: codeRef.current,
@@ -143,28 +150,20 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
     applyQuestionResult(data);
   }
 
-  // ---- per-question timer ----
+  // ---- whole-test timer ----
   // The server is authoritative on expiry; this interval only drives the
-  // on-screen countdown so it ticks smoothly between syncs.
+  // on-screen countdown, and is re-synced from every server response.
   useEffect(() => {
-    if (view !== 'test' || !question) return;
-    submittingRef.current = false;
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setRemaining((r) => {
-        if (r <= 1) {
-          clearInterval(timerRef.current);
-          advance('answer');
-          return 0;
-        }
-        return r - 1;
-      });
-    }, 1000);
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    if (view !== 'test' && view !== 'review') return;
+    const id = setInterval(() => setRemaining((r) => Math.max(0, r - 1)), 1000);
+    return () => clearInterval(id);
+  }, [view]);
+
+  // Time's up: ask the server to submit whatever is answered so far.
+  useEffect(() => {
+    if ((view === 'test' || view === 'review') && remaining <= 0) submitFinal();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, question?.index]);
+  }, [view, remaining]);
 
   async function submitCode() {
     setErrMsg('');
@@ -187,6 +186,7 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
       setTitle(data.title);
       setQuarter(data.quarter);
       setQuestionCount(data.questionCount);
+      setTotalMinutes(data.totalMinutes);
       setView('consent');
     } else if (data.status === 'submitted') {
       // Already finished on a prior visit - re-entering shows the read-only
@@ -225,6 +225,8 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
       return;
     }
     setDraft(data.questions);
+    setRemaining(Math.ceil(data.remainingSeconds));
+    setTotalSeconds(data.totalSeconds);
   }
 
   function startEdit(q) {
@@ -334,12 +336,12 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
             Hi {officerName.split(' ')[0]}
           </h1>
           <p className="pt-sub">
-            {questionCount} questions, each with its own time limit shown on screen. Questions are shown one at a
-            time; some can be skipped and answered later, before you submit. Your access has already been recorded
-            as opened.
+            {questionCount} questions in {totalMinutes} minutes. Questions are shown one at a time; some can be
+            skipped and answered later. When you reach the end you can review and change your answers before you
+            submit. Your access has already been recorded as opened.
           </p>
           <ul style={{ fontSize: '13px', color: 'var(--muted)', lineHeight: 1.9, margin: '0 0 20px', paddingLeft: '18px' }}>
-            <li>Answer at your own pace within the time given for each question &mdash; the next question loads automatically when time runs out.</li>
+            <li>One timer covers the whole test and keeps running while you review &mdash; when it runs out, your answers so far are submitted automatically.</li>
             <li>Copying, right-click, and printing are disabled for the duration of the test.</li>
             <li>Leaving this tab or window during the test is logged.</li>
           </ul>
@@ -352,13 +354,13 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
   }
 
   if (view === 'test' && question) {
-    const pct = Math.max(0, (remaining / budgetSeconds) * 100);
+    const pct = Math.max(0, (remaining / totalSeconds) * 100);
     const canSkip = question.skipPolicy !== 'none';
     const canProceed = question.kind === 'text' ? answerText.trim().length > 0 : selected != null;
     return (
       <div className="wrap narrow">
         <div className="q-progress">
-          QUESTION {question.index + 1} OF {question.total}
+          QUESTION {question.index + 1} OF {question.total} &middot; {formatClock(remaining)} LEFT
         </div>
         <div className="timerbar-track">
           <div className="timerbar-fill" style={{ width: pct + '%' }} />
@@ -421,9 +423,12 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
             Review your answers
           </h1>
           <p className="pt-sub">
-            Look over what you chose and change anything you like. The timer no longer applies here. Once you submit,
-            your answers are final.
+            Look over what you chose and change anything you like. Once you submit, your answers are final.
           </p>
+          <div className="q-progress">{formatClock(remaining)} LEFT &mdash; submitted automatically at zero</div>
+          <div className="timerbar-track">
+            <div className="timerbar-fill" style={{ width: Math.max(0, (remaining / totalSeconds) * 100) + '%' }} />
+          </div>
         </div>
         <div className="q-shell card">
           <Watermark name={officerName} code={code} />

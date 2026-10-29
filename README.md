@@ -14,7 +14,7 @@ current question's text and shuffled option labels, never the answer key.
 **Officer test flow**
 - Redeem a single-use access code (format `CS-XXXXX`) to start the test — once submitted, or if
   the code is reused, further attempts are logged and blocked.
-- Questions are served one at a time, each on a configurable countdown (`secondsPerQuestion`).
+- Questions are served one at a time, under one countdown for the whole test (`totalMinutes`), with a review-and-change screen before the final submit.
 - Question order and per-question option order are deterministically shuffled per officer (seeded
   off their code), so each officer sees a different arrangement that stays stable across page
   reloads/reopens without needing to persist the shuffled order server-side.

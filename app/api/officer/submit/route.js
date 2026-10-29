@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getOfficer, saveOfficer, getSettings } from '@/lib/db';
-import { openQuestionIds, finishOfficer } from '@/lib/officerFlow';
+import { openQuestionIds, finishOfficer, expireIfTimeUp, finishedPayload } from '@/lib/officerFlow';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
@@ -19,17 +19,16 @@ export async function POST(req) {
   if (officer.status !== 'in_progress') {
     return NextResponse.json({ error: 'This test is not currently in progress.' }, { status: 409 });
   }
-  if (openQuestionIds(officer).length > 0) {
-    return NextResponse.json({ error: 'Answer or skip every question before submitting.' }, { status: 409 });
-  }
 
   const settings = getSettings();
-  finishOfficer(officer);
+  // Out of time: submit as-is, open questions and all.
+  if (!expireIfTimeUp(officer, settings)) {
+    if (openQuestionIds(officer).length > 0) {
+      return NextResponse.json({ error: 'Answer or skip every question before submitting.' }, { status: 409 });
+    }
+    finishOfficer(officer);
+  }
   saveOfficer(officer);
 
-  return NextResponse.json({
-    status: 'done',
-    score: settings.showScoreToOfficer ? officer.score : null,
-    totalQuestions: officer.totalQuestions,
-  });
+  return NextResponse.json(finishedPayload(officer, settings));
 }

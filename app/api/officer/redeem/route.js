@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getOfficer, saveOfficer, getSettings, listQuestions } from '@/lib/db';
 import { pickQuestionOrder } from '@/lib/quiz';
-import { serveCurrent } from '@/lib/officerFlow';
+import { serveCurrent, expireIfTimeUp, finishedPayload } from '@/lib/officerFlow';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
@@ -35,16 +35,20 @@ export async function POST(req) {
 
   if (officer.status === 'in_progress') {
     officer.reopens.push(new Date().toISOString());
+    if (expireIfTimeUp(officer, settings)) {
+      saveOfficer(officer);
+      return NextResponse.json(finishedPayload(officer, settings));
+    }
     const result = serveCurrent(officer, settings);
     saveOfficer(officer);
     if (result.done) {
-      return NextResponse.json({ status: 'review', name: officer.name });
+      return NextResponse.json({ status: 'review', name: officer.name, remainingSeconds: result.remainingSeconds, totalSeconds: result.totalSeconds });
     }
     return NextResponse.json({
       status: 'question',
       name: officer.name,
       remainingSeconds: result.remainingSeconds,
-      budgetSeconds: result.budgetSeconds,
+      totalSeconds: result.totalSeconds,
       question: result.question,
     });
   }
@@ -65,6 +69,7 @@ export async function POST(req) {
   officer.closed = [];
   officer.spent = {};
   officer.questionStartedAt = null;
+  officer.startedAt = null;
   officer.order = pickQuestionOrder(questions.map((q) => q.id), officer.code, settings.questionsPerAssessment);
   saveOfficer(officer);
 
@@ -74,5 +79,6 @@ export async function POST(req) {
     title: settings.title,
     quarter: settings.quarter,
     questionCount: officer.order.length,
+    totalMinutes: settings.totalMinutes,
   });
 }
