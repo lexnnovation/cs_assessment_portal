@@ -49,6 +49,9 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
   const [remaining, setRemaining] = useState(0);
   const [doneInfo, setDoneInfo] = useState(null);
   const [reviewData, setReviewData] = useState(null);
+  const [previousData, setPreviousData] = useState(null);
+  const [hasPrevious, setHasPrevious] = useState(false);
+  const [prevBack, setPrevBack] = useState(null); // where the previous-results screen returns to
   const [doneTab, setDoneTab] = useState('score');
   const [blockedMsg, setBlockedMsg] = useState('');
   const [draft, setDraft] = useState(null);
@@ -181,12 +184,16 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
     if (data.status === 'blocked') {
       setBlockedMsg(data.message);
       setView('blocked');
+    } else if (data.status === 'previous_only') {
+      if (data.name) setOfficerName(data.name);
+      await showPrevious(null);
     } else if (data.status === 'consent') {
       setOfficerName(data.name);
       setTitle(data.title);
       setQuarter(data.quarter);
       setQuestionCount(data.questionCount);
       setTotalMinutes(data.totalMinutes);
+      setHasPrevious(!!data.hasPrevious);
       setView('consent');
     } else if (data.status === 'submitted') {
       // Already finished on a prior visit - re-entering shows the read-only
@@ -216,6 +223,18 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
     if (!ok) return null;
     setReviewData(data);
     return data;
+  }
+
+  async function showPrevious(back) {
+    const { ok, data } = await postJson('/api/officer/previous', { code: codeRef.current });
+    if (!ok) {
+      setErrMsg(data.error || 'Something went wrong.');
+      return;
+    }
+    setPreviousData(data);
+    setPrevBack(back);
+    setDoneTab('score');
+    setView('previous');
   }
 
   async function loadDraft() {
@@ -345,6 +364,12 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
             <li>Copying, right-click, and printing are disabled for the duration of the test.</li>
             <li>Leaving this tab or window during the test is logged.</li>
           </ul>
+          {errMsg && <div className="msg msg-error">{errMsg}</div>}
+          {hasPrevious && (
+            <button className="btn btn-ghost btn-block" style={{ marginBottom: '10px' }} onClick={() => showPrevious('consent')}>
+              See my previous results
+            </button>
+          )}
           <button className="btn btn-primary btn-block" onClick={startTest}>
             Start test
           </button>
@@ -531,9 +556,13 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
     );
   }
 
-  if (view === 'done') {
-    const showScore = doneInfo && doneInfo.score != null;
-    const line = showScore ? scoreLine(doneInfo.score, doneInfo.totalQuestions) : null;
+  if (view === 'done' || view === 'previous') {
+    const isPrev = view === 'previous';
+    const shown = isPrev ? previousData : shown;
+    const scoreVal = isPrev ? previousData?.score : doneInfo?.score;
+    const totalVal = isPrev ? previousData?.totalQuestions : doneInfo?.totalQuestions;
+    const showScore = scoreVal != null;
+    const line = showScore ? scoreLine(scoreVal, totalVal) : null;
     return (
       <div className="wrap narrow">
         <div className="code-entry">
@@ -541,14 +570,31 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
             &#10003;
           </div>
           <h1 className="pt-title" style={{ fontSize: '20px' }}>
-            Test submitted
+            {isPrev ? 'Previous test' : 'Test submitted'}
           </h1>
-          {!reviewData && (
+          {isPrev && (
+            <p className="pt-sub">
+              {previousData.title} &middot; {previousData.quarter} &middot;{' '}
+              {new Date(previousData.submittedAt).toLocaleDateString()}
+            </p>
+          )}
+          {isPrev && prevBack && (
+            <button className="btn btn-primary" onClick={() => setView(prevBack)}>
+              {prevBack === 'consent' ? 'Continue to the new test' : 'Back to my results'}
+            </button>
+          )}
+          {isPrev && !prevBack && <p className="pt-sub">No new test is available right now.</p>}
+          {!isPrev && shown?.previous && (
+            <button className="btn btn-ghost" onClick={() => showPrevious('done')}>
+              See my previous results
+            </button>
+          )}
+          {!shown && (
             <p className="pt-sub">{showScore ? `You answered ${line.text}.` : 'Your responses have been recorded.'}</p>
           )}
         </div>
 
-        {reviewData && (
+        {shown && (
           <>
             <div className="tabbar" style={{ justifyContent: 'center' }}>
               <button className={'tabbtn' + (doneTab === 'score' ? ' active' : '')} onClick={() => setDoneTab('score')}>
@@ -568,11 +614,11 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
                       {line.pct}%
                     </div>
                     <div style={{ color: 'var(--muted)', fontSize: '14px', marginTop: '8px' }}>
-                      {doneInfo.score} of {doneInfo.totalQuestions} correct
+                      {scoreVal} of {totalVal} correct
                     </div>
-                    {reviewData.pendingCount > 0 && (
+                    {shown.pendingCount > 0 && (
                       <div style={{ color: 'var(--amber)', fontSize: '13px', marginTop: '10px' }}>
-                        {reviewData.pendingCount} written answer{reviewData.pendingCount === 1 ? '' : 's'} still pending
+                        {shown.pendingCount} written answer{shown.pendingCount === 1 ? '' : 's'} still pending
                         review &mdash; your score may change once graded.
                       </div>
                     )}
@@ -587,12 +633,12 @@ export default function OfficerPortal({ initialTitle, initialQuarter }) {
 
             {doneTab === 'review' && (
               <div className="card">
-                {reviewData.pendingCount > 0 && (
+                {shown.pendingCount > 0 && (
                   <div className="msg msg-warn">
-                    {reviewData.pendingCount} written answer{reviewData.pendingCount === 1 ? '' : 's'} still pending review.
+                    {shown.pendingCount} written answer{shown.pendingCount === 1 ? '' : 's'} still pending review.
                   </div>
                 )}
-                {reviewData.questions.map((q, i) => {
+                {shown.questions.map((q, i) => {
                   const badge = !q.answered
                     ? { cls: 'unanswered', label: 'Not answered' }
                     : q.kind === 'text' && !q.graded

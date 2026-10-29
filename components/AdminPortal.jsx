@@ -255,6 +255,7 @@ function OfficersTab({
   onExport,
   onToggleExpand,
 }) {
+  const [prevCode, setPrevCode] = useState(null);
   return (
     <>
       <div className="card">
@@ -343,6 +344,13 @@ function OfficersTab({
                             {expanded ? 'Hide answers' : 'View answers'}
                           </button>
                         )}{' '}
+                        {o.previous && (
+                          <>
+                            <button className="btn btn-ghost btn-small" onClick={() => setPrevCode(prevCode === o.code ? null : o.code)}>
+                              {prevCode === o.code ? 'Hide past results' : 'Past results'}
+                            </button>{' '}
+                          </>
+                        )}
                         <button className="btn btn-ghost btn-small" onClick={() => onReset(o.code)}>
                           Reset
                         </button>{' '}
@@ -356,6 +364,19 @@ function OfficersTab({
                         <td colSpan={8} style={{ background: 'var(--panel-2)' }}>
                           {buildOfficerPaper(o, questions).map((row) => (
                             <PaperRow key={row.qId} row={row} />
+                          ))}
+                        </td>
+                      </tr>
+                    )}
+                    {prevCode === o.code && o.previous && (
+                      <tr>
+                        <td colSpan={8} style={{ background: 'var(--panel-2)' }}>
+                          <div style={{ marginBottom: '10px', fontSize: '13px', color: 'var(--muted)' }}>
+                            <strong>Previous quiz</strong> &middot; {o.previous.title} &middot; {o.previous.quarter} &middot; submitted{' '}
+                            {fmtTime(o.previous.submittedAt)} &middot; {scoreLine(o.previous.score, o.previous.totalQuestions).text}
+                          </div>
+                          {o.previous.questions.map((row, i) => (
+                            <PaperRow key={i} row={row} />
                           ))}
                         </td>
                       </tr>

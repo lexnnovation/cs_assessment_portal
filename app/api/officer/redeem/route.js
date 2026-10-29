@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getOfficer, saveOfficer, getSettings, listQuestions } from '@/lib/db';
 import { pickQuestionOrder } from '@/lib/quiz';
-import { serveCurrent, expireIfTimeUp, finishedPayload } from '@/lib/officerFlow';
+import { serveCurrent, expireIfTimeUp, finishedPayload, previousForOfficer } from '@/lib/officerFlow';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
@@ -56,6 +56,10 @@ export async function POST(req) {
   // not_opened -> first time this code is used
   const questions = listQuestions();
   if (!questions.length) {
+    // Nothing new to take, but they can still look back at their last quiz.
+    if (previousForOfficer(officer, settings)) {
+      return NextResponse.json({ status: 'previous_only', name: officer.name });
+    }
     return NextResponse.json(
       { error: 'No questions have been configured yet. Contact your supervisor.' },
       { status: 409 }
@@ -79,6 +83,7 @@ export async function POST(req) {
     title: settings.title,
     quarter: settings.quarter,
     questionCount: officer.order.length,
+    hasPrevious: !!officer.previous && settings.showReviewToOfficer,
     totalMinutes: settings.totalMinutes,
   });
 }

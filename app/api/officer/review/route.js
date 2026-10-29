@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getOfficer, getSettings } from '@/lib/db';
-import { buildReview } from '@/lib/officerFlow';
+import { buildReview, previousForOfficer } from '@/lib/officerFlow';
 import { rateLimit, clientKey } from '@/lib/rateLimit';
 
 export const runtime = 'nodejs';
@@ -23,6 +23,7 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Answer review is not available.' }, { status: 403 });
   }
 
+  const settings = getSettings();
   const questions = buildReview(officer);
   const pendingCount = questions.filter((q) => q.kind === 'text' && q.answered && !q.graded).length;
 
@@ -32,5 +33,6 @@ export async function POST(req) {
     totalQuestions: officer.totalQuestions,
     pendingCount,
     questions,
+    previous: previousForOfficer(officer, settings),
   });
 }
