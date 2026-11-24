@@ -167,7 +167,9 @@ function pendingReviewRows(officers, questions) {
   return rows;
 }
 
-function PaperRow({ row }) {
+// onGrade is only passed for the current attempt, so past-results snapshots
+// stay read-only.
+function PaperRow({ row, onGrade }) {
   const badge = !row.answered
     ? { cls: 'unanswered', label: 'Not answered' }
     : row.kind === 'text' && !row.graded
@@ -205,6 +207,16 @@ function PaperRow({ row }) {
         </div>
       ) : (
         <div className="opts-mini">{row.answered ? <div>{row.yourAnswer}</div> : <span style={{ color: 'var(--muted)' }}>Not answered.</span>}</div>
+      )}
+      {onGrade && row.kind === 'text' && row.answered && (
+        <div className="row" style={{ marginTop: '8px' }}>
+          <button className="btn btn-primary btn-small" disabled={row.graded && row.correct} onClick={() => onGrade(row.qId, true)}>
+            Mark correct
+          </button>
+          <button className="btn btn-danger btn-small" disabled={row.graded && !row.correct} onClick={() => onGrade(row.qId, false)}>
+            Mark incorrect
+          </button>
+        </div>
       )}
     </div>
   );
@@ -255,6 +267,7 @@ function OfficersTab({
   onExport,
   onResetAll,
   onToggleExpand,
+  onGrade,
 }) {
   const [prevCode, setPrevCode] = useState(null);
   const prevOfficer = officers.find((o) => o.code === prevCode && o.previous);
@@ -379,7 +392,7 @@ function OfficersTab({
                       <tr>
                         <td colSpan={8} style={{ background: 'var(--panel-2)' }}>
                           {buildOfficerPaper(o, questions).map((row) => (
-                            <PaperRow key={row.qId} row={row} />
+                            <PaperRow key={row.qId} row={row} onGrade={(qId, correct) => onGrade(o.code, qId, correct)} />
                           ))}
                         </td>
                       </tr>
@@ -1180,6 +1193,7 @@ export default function AdminPortal() {
           onDelete={deleteOfficerCode}
           onExport={exportCsv}
           onToggleExpand={(code) => setExpandedCode(expandedCode === code ? null : code)}
+          onGrade={gradeAnswer}
         />
       )}
       {tab === 'grading' && <GradingTab rows={pendingRows} onGrade={gradeAnswer} />}

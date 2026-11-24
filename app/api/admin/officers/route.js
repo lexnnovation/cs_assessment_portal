@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminGuard } from '@/lib/auth';
 import { listOfficers, listOfficerCodes, createOfficer } from '@/lib/db';
-import { officerEvents } from '@/lib/officerFlow';
+import { officerEvents, rescoreSubmittedOnce } from '@/lib/officerFlow';
 import { genCode } from '@/lib/quiz';
 
 export const runtime = 'nodejs';
@@ -10,6 +10,7 @@ export async function GET() {
   const unauthorized = await adminGuard();
   if (unauthorized) return unauthorized;
 
+  rescoreSubmittedOnce();
   const officers = listOfficers();
   return NextResponse.json({ officers, events: officerEvents(officers) });
 }
